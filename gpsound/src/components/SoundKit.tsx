@@ -1,6 +1,5 @@
-// SoundKit.tsx
-// import { useState } from 'react';
-import SoundPlayer from './SoundPlayer'; // Import the separate component
+import SoundPlayer from './SoundPlayer';
+import { INSTRUMENT_DEFINITIONS } from './instrumentConfig';
 
 interface SoundKitProps {
   show: boolean;
@@ -12,16 +11,6 @@ interface SoundKitProps {
 }
 
 const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedSoundType }: SoundKitProps) => {
-  const soundOptions = [
-    { id: 'fm-synth', name: 'FM Synth', note: 'C4' },
-    { id: 'am-synth', name: 'AM Synth', note: 'G4' },
-    { id: 'bass', name: 'Bass', note: 'C2' },
-    { id: 'lead', name: 'Lead', note: 'C5' },
-    { id: 'drum', name: 'Drum Hit', note: 'C3' },
-    { id: 'beat_loop', name: 'Beat Loop', note: 'C4'},
-    { id: 'organ_loop', name: 'Organ Loop', note: 'C4'}
-  ];
-
   const handleSoundSelect = (soundType: string, note: string) => {
     const soundPlayer = SoundPlayer.getInstance();
     soundPlayer.playSingle(soundType, note);
@@ -57,10 +46,10 @@ const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedSou
       }}>
         Select Sound for {shapeId}
       </div>
-      {soundOptions.map((sound) => (
+      {INSTRUMENT_DEFINITIONS.map((sound) => (
         <button
           key={sound.id}
-          onClick={() => handleSoundSelect(sound.id, sound.note)}
+          onClick={() => handleSoundSelect(sound.id, sound.defaultNote)}
           style={{
             width: '100%',
             padding: '10px 12px',

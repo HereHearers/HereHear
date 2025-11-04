@@ -72,7 +72,7 @@ const DrawMapZones = () => {
 
 
     // Helper function to find current sound type for a shape
-    const getCurrentSoundType = (shapeId: number) => {
+    const getCurrentsoundType = (shapeId: number) => {
         for (const [_, metadata] of shapeMetadataRef.current.entries()) {
             if (metadata.id === shapeId) {
                 return metadata.soundType;
@@ -176,13 +176,13 @@ const DrawMapZones = () => {
                 layer.on('click', function (e: any) {
                     if (!mapInstanceRef.current) return;
                     const containerPoint = map.mouseEventToContainerPoint(e.originalEvent);
-                    const currentSoundType = getCurrentSoundType(shapeId);
+                    const currentsoundType = getCurrentsoundType(shapeId);
 
                     setSoundDropdown({
                         show: true,
                         position: { x: containerPoint.x, y: containerPoint.y },
                         shapeId: shapeId,
-                        soundType: currentSoundType
+                        soundType: currentsoundType
                     });
                 });
                 console.log('Shape drawn. shapeInfo:', shapeInfo, flatShape);
@@ -343,13 +343,13 @@ const DrawMapZones = () => {
                 layer.on('click', function (e: any) {
                     if (!mapInstanceRef.current) return;
                     const containerPoint = mapInstanceRef.current.mouseEventToContainerPoint(e.originalEvent);
-                    const currentSoundType = getCurrentSoundType(shape.id);
+                    const currentsoundType = getCurrentsoundType(shape.id);
 
                     setSoundDropdown({
                         show: true,
                         position: { x: containerPoint.x, y: containerPoint.y },
                         shapeId: shape.id,
-                        soundType: currentSoundType
+                        soundType: currentsoundType
                     });
                 });
             updatedShapes.push(shape)
@@ -636,6 +636,13 @@ const DrawMapZones = () => {
         soundPlayer.stopAll()
     }
 
+    const handleSoundboxing = () => {
+        const soundPlayer = SoundPlayer.getInstance();
+        console.log("playing test sound")
+        soundPlayer.playSingle("test", "C4")
+    }
+
+
     return (
         <div style={{ height: '100vh', width: '100vw', position: 'relative' }}>
             <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
@@ -724,6 +731,25 @@ const DrawMapZones = () => {
                 }}
             >
                 Get nearest (debug)
+            </button>
+            <button
+                onClick={handleSoundboxing}
+                style={{
+                    position: 'absolute',
+                    top: '670px',
+                    left: '10px',
+                    backgroundColor: '#3b82f6',
+                    color: 'white',
+                    padding: '8px 12px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                    zIndex: 1000,
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                }}
+            >
+                Sound test (debug)
             </button>
             <div>
                 <button 

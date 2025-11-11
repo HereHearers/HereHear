@@ -6,6 +6,7 @@ import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
 import MarkerSelectDialog from './UserSelection';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
+import type { User } from '../automergeTypes';
 
 // Fix for default markers
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -31,7 +32,13 @@ interface ConvertedCoords {
     y: number;
 }
 
-const DrawMapZones = () => {
+interface DrawMapZonesProps {
+    connectedUsers: (User & { isActive: boolean })[];
+    currentUserId: string;
+    updateUserPosition: (lat: number, lng: number) => void;
+}
+
+const DrawMapZones = ({ connectedUsers, currentUserId, updateUserPosition }: DrawMapZonesProps) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
     const [mapLoc, ] = useState<L.LatLngTuple>([42.308606, -83.747036]);
@@ -49,6 +56,11 @@ const DrawMapZones = () => {
     const [isMarkerDlgOpen, setIsMarkerDlgOpen] = useState(false);
     let {point} = Flatten;
     const chosenMarkerRef = useRef<Flatten.Point>(point(0,0));
+    
+    // Track user markers (userId -> L.Marker)
+    const userMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+    // Track if the current user's marker is being dragged
+    const isDraggingRef = useRef<boolean>(false);
     
     // handling state updates for shapes and markers
     const addUpdateShapeMeta = (k: DrawnShape, v: DrawnLayer) => {
@@ -223,6 +235,126 @@ const DrawMapZones = () => {
             }
         };
     }, []);
+
+    // Function to create a custom icon with username label
+    const createUserIcon = (username: string, isCurrentUser: boolean) => {
+        const color = isCurrentUser ? '#3b82f6' : '#10b981'; // Blue for current user, green for others
+        const iconHtml = `
+            <div style="position: relative;">
+                <div style="
+                    width: 30px;
+                    height: 30px;
+                    border-radius: 50%;
+                    background-color: ${color};
+                    border: 3px solid white;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                    color: white;
+                    font-size: 14px;
+                ">
+                    ${username.substring(0, 1).toUpperCase()}
+                </div>
+                <div style="
+                    position: absolute;
+                    top: 35px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background-color: rgba(0, 0, 0, 0.75);
+                    color: white;
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    font-size: 11px;
+                    white-space: nowrap;
+                    pointer-events: none;
+                ">
+                    ${username}
+                </div>
+            </div>
+        `;
+        
+        return L.divIcon({
+            html: iconHtml,
+            className: 'user-marker-icon',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15],
+        });
+    };
+
+    // Manage user markers based on connected users
+    useEffect(() => {
+        if (!mapInstanceRef.current) return;
+        
+        const map = mapInstanceRef.current;
+        const currentUserMarkers = userMarkersRef.current;
+        
+        // Track which users we've processed
+        const processedUserIds = new Set<string>();
+        
+        // Add or update markers for all connected users
+        connectedUsers.forEach(user => {
+            processedUserIds.add(user.id);
+            
+            const isCurrentUser = user.id === currentUserId;
+            const username = user.name || 'Anonymous';
+            
+            // Check if marker already exists
+            let marker = currentUserMarkers.get(user.id);
+            
+            if (marker) {
+                // Update existing marker
+                // Skip all updates if currently being dragged by this user
+                if (!(isCurrentUser && isDraggingRef.current)) {
+                    // Update position
+                    if (user.position) {
+                        marker.setLatLng([user.position.lat, user.position.lng]);
+                    }
+                    // Update icon (in case username changed)
+                    marker.setIcon(createUserIcon(username, isCurrentUser));
+                }
+            } else {
+                // Create new marker
+                const position: L.LatLngTuple = user.position 
+                    ? [user.position.lat, user.position.lng]
+                    : [mapLoc[0], mapLoc[1]]; // Default to map center if no position
+                
+                marker = L.marker(position, {
+                    icon: createUserIcon(username, isCurrentUser),
+                    draggable: isCurrentUser, // Only current user's marker is draggable
+                }).addTo(map);
+                
+                // If this is the current user's marker, set up drag events
+                if (isCurrentUser) {
+                    marker.on('dragstart', () => {
+                        isDraggingRef.current = true;
+                    });
+                    
+                    marker.on('dragend', (event: any) => {
+                        isDraggingRef.current = false;
+                        const newPos = event.target.getLatLng();
+                        updateUserPosition(newPos.lat, newPos.lng);
+                    });
+                    
+                    // Initialize current user's position if not set
+                    if (!user.position) {
+                        updateUserPosition(position[0], position[1]);
+                    }
+                }
+                
+                currentUserMarkers.set(user.id, marker);
+            }
+        });
+        
+        // Remove markers for users who are no longer connected
+        for (const [userId, marker] of currentUserMarkers.entries()) {
+            if (!processedUserIds.has(userId)) {
+                map.removeLayer(marker);
+                currentUserMarkers.delete(userId);
+            }
+        }
+    }, [connectedUsers, currentUserId, updateUserPosition, mapLoc]);
 
     const getCoordinates = function (layer: any, type: any) {
         switch (type) {

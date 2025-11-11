@@ -174,6 +174,20 @@ export const useAutomergeDoc = () => {
     });
   };
 
+  // Function to update the current user's position
+  const updateUserPosition = (lat: number, lng: number) => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      if (!d.users) {
+        d.users = {};
+      }
+      if (d.users[userId]) {
+        d.users[userId].position = { lat, lng };
+      }
+    });
+  };
+
   return {
     doc,
     changeDoc,
@@ -181,6 +195,7 @@ export const useAutomergeDoc = () => {
     connectedUsers,
     connectedUserCount: connectedUsers.length,
     updateUserName,
+    updateUserPosition,
     isReady: !!doc,
   };
 };

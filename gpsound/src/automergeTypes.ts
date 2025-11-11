@@ -12,6 +12,10 @@ export interface User {
   connectedAt: number; // timestamp
   lastSeen: number; // timestamp for heartbeat
   hiddenSince?: number; // timestamp when tab became hidden (undefined if visible)
+  position?: {
+    lat: number;
+    lng: number;
+  };
 }
 
 // The root structure of our shared Automerge document

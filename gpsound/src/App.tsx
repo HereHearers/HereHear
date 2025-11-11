@@ -7,19 +7,9 @@ window.type = true;
 
 
 function App() {
-  const { connectedUserCount, connectedUsers, userId, updateUserName, isReady } = useAutomergeDoc();
+  const { connectedUserCount, connectedUsers, userId, updateUserName, updateUserPosition, isReady } = useAutomergeDoc();
   const [isExpanded, setIsExpanded] = useState(false);
   const [nameInput, setNameInput] = useState('');
-
-  // Debug: When expanded, log what we're seeing
-  if (isExpanded && connectedUsers.length > 0) {
-    const now = Date.now();
-    console.log("User list expanded - current state:");
-    connectedUsers.forEach(u => {
-      const hiddenFor = u.hiddenSince ? `${Math.round((now - u.hiddenSince) / 1000)}s` : 'visible';
-      console.log(`  ${u.id.substring(0, 8)}: isActive=${u.isActive}, hiddenFor=${hiddenFor}, name=${u.name || 'Anonymous'} ${u.id === userId ? '(YOU)' : ''}`);
-    });
-  }
 
   // Get current user's name from the document
   const currentUser = connectedUsers.find(u => u.id === userId);
@@ -214,7 +204,11 @@ function App() {
         }
       `}</style>
 
-      <DrawMapZones />
+      <DrawMapZones
+        connectedUsers={connectedUsers}
+        currentUserId={userId}
+        updateUserPosition={updateUserPosition}
+      />
     </>
   );
 }

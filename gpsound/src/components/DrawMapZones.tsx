@@ -239,6 +239,7 @@ const DrawMapZones = ({ connectedUsers, currentUserId, updateUserPosition }: Dra
     // Function to create a custom icon with username label
     const createUserIcon = (username: string, isCurrentUser: boolean) => {
         const color = isCurrentUser ? '#3b82f6' : '#10b981'; // Blue for current user, green for others
+        const borderColor = isCurrentUser ? '#fbbf24' : 'white'; // Gold for current user, white for others
         const iconHtml = `
             <div style="position: relative;">
                 <div style="
@@ -246,7 +247,7 @@ const DrawMapZones = ({ connectedUsers, currentUserId, updateUserPosition }: Dra
                     height: 30px;
                     border-radius: 50%;
                     background-color: ${color};
-                    border: 3px solid white;
+                    border: 3px solid ${borderColor};
                     box-shadow: 0 2px 4px rgba(0,0,0,0.3);
                     display: flex;
                     align-items: center;
@@ -270,7 +271,7 @@ const DrawMapZones = ({ connectedUsers, currentUserId, updateUserPosition }: Dra
                     white-space: nowrap;
                     pointer-events: none;
                 ">
-                    ${username}
+                    ${username}${isCurrentUser ? ' (you)' : ''}
                 </div>
             </div>
         `;

@@ -4,8 +4,8 @@ import 'leaflet-draw';
 import Flatten from 'flatten-js';
 import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
-import MarkerSelectDialog from './UserSelection';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
+import type { User } from '../automergeTypes';
 
 // Fix for default markers
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -31,7 +31,13 @@ interface ConvertedCoords {
     y: number;
 }
 
-const DrawMapZones = () => {
+interface DrawMapZonesProps {
+    connectedUsers: (User & { isActive: boolean })[];
+    currentUserId: string;
+    updateUserPosition: (lat: number, lng: number) => void;
+}
+
+const DrawMapZones = ({ connectedUsers, currentUserId, updateUserPosition }: DrawMapZonesProps) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
     const [mapLoc, ] = useState<L.LatLngTuple>([42.308606, -83.747036]);
@@ -46,9 +52,16 @@ const DrawMapZones = () => {
         shapeId: null,
         soundType: null
     });
-    const [isMarkerDlgOpen, setIsMarkerDlgOpen] = useState(false);
     let {point} = Flatten;
-    const chosenMarkerRef = useRef<Flatten.Point>(point(0,0));
+    
+    // Track user markers (userId -> L.Marker)
+    const userMarkersRef = useRef<Map<string, L.Marker>>(new Map());
+    // Track if the current user's marker is being dragged
+    const isDraggingRef = useRef<boolean>(false);
+    // Track if audio is enabled
+    const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+    // Track currently playing sounds to avoid unnecessary restarts
+    const currentSoundsRef = useRef<string>('');
     
     // handling state updates for shapes and markers
     const addUpdateShapeMeta = (k: DrawnShape, v: DrawnLayer) => {
@@ -132,6 +145,7 @@ const DrawMapZones = () => {
         const drawControl = new L.Control.Draw({
             draw: {
                 polyline: false,
+                marker: false, // Disable marker tool - using user markers instead
             },
             edit: {
                 featureGroup: drawnItems,
@@ -224,6 +238,188 @@ const DrawMapZones = () => {
         };
     }, []);
 
+    // Function to create a custom icon with username label
+    const createUserIcon = (username: string, isCurrentUser: boolean) => {
+        const color = isCurrentUser ? '#3b82f6' : '#10b981'; // Blue for current user, green for others
+        const borderColor = isCurrentUser ? '#fbbf24' : 'white'; // Gold for current user, white for others
+        const iconHtml = `
+            <div style="position: relative;">
+                <div style="
+                    width: 30px;
+                    height: 30px;
+                    border-radius: 50%;
+                    background-color: ${color};
+                    border: 3px solid ${borderColor};
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-weight: bold;
+                    color: white;
+                    font-size: 14px;
+                ">
+                    ${username.substring(0, 1).toUpperCase()}
+                </div>
+                <div style="
+                    position: absolute;
+                    top: 35px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background-color: rgba(0, 0, 0, 0.75);
+                    color: white;
+                    padding: 2px 6px;
+                    border-radius: 3px;
+                    font-size: 11px;
+                    white-space: nowrap;
+                    pointer-events: none;
+                ">
+                    ${username}${isCurrentUser ? ' (you)' : ''}
+                </div>
+            </div>
+        `;
+        
+        return L.divIcon({
+            html: iconHtml,
+            className: 'user-marker-icon',
+            iconSize: [30, 30],
+            iconAnchor: [15, 15],
+        });
+    };
+
+    // Manage user markers based on connected users
+    useEffect(() => {
+        if (!mapInstanceRef.current) return;
+        
+        const map = mapInstanceRef.current;
+        const currentUserMarkers = userMarkersRef.current;
+        
+        // Track which users we've processed
+        const processedUserIds = new Set<string>();
+        
+        // Add or update markers for all connected users
+        connectedUsers.forEach(user => {
+            processedUserIds.add(user.id);
+            
+            const isCurrentUser = user.id === currentUserId;
+            const username = user.name || 'Anonymous';
+            
+            // Check if marker already exists
+            let marker = currentUserMarkers.get(user.id);
+            
+            if (marker) {
+                // Update existing marker
+                // Skip all updates if currently being dragged by this user
+                if (!(isCurrentUser && isDraggingRef.current)) {
+                    // Update position
+                    if (user.position) {
+                        marker.setLatLng([user.position.lat, user.position.lng]);
+                    }
+                    // Update icon (in case username changed)
+                    marker.setIcon(createUserIcon(username, isCurrentUser));
+                }
+            } else {
+                // Create new marker
+                const position: L.LatLngTuple = user.position 
+                    ? [user.position.lat, user.position.lng]
+                    : [mapLoc[0], mapLoc[1]]; // Default to map center if no position
+                
+                marker = L.marker(position, {
+                    icon: createUserIcon(username, isCurrentUser),
+                    draggable: isCurrentUser, // Only current user's marker is draggable
+                }).addTo(map);
+                
+                // If this is the current user's marker, set up drag events
+                if (isCurrentUser) {
+                    marker.on('dragstart', () => {
+                        isDraggingRef.current = true;
+                    });
+                    
+                    marker.on('dragend', (event: any) => {
+                        isDraggingRef.current = false;
+                        const newPos = event.target.getLatLng();
+                        updateUserPosition(newPos.lat, newPos.lng);
+                    });
+                    
+                    // Initialize current user's position if not set
+                    if (!user.position) {
+                        updateUserPosition(position[0], position[1]);
+                    }
+                }
+                
+                currentUserMarkers.set(user.id, marker);
+            }
+        });
+        
+        // Remove markers for users who are no longer connected
+        for (const [userId, marker] of currentUserMarkers.entries()) {
+            if (!processedUserIds.has(userId)) {
+                map.removeLayer(marker);
+                currentUserMarkers.delete(userId);
+            }
+        }
+    }, [connectedUsers, currentUserId, updateUserPosition, mapLoc]);
+
+    // Extract current user's position as a string to avoid re-triggering on object reference changes
+    const currentUserPositionKey = (() => {
+        const currentUser = connectedUsers.find(u => u.id === currentUserId);
+        if (!currentUser?.position) return null;
+        return `${currentUser.position.lat},${currentUser.position.lng}`;
+    })();
+
+    // Automatically update audio based on user position
+    useEffect(() => {
+        if (!isAudioEnabled) return;
+        if (drawnShapes.length === 0) return;
+        if (!currentUserPositionKey) return;
+
+        // Parse position from key
+        const [lat, lng] = currentUserPositionKey.split(',').map(Number);
+
+        // Convert lat/lng to meters using the same coordinate system as shapes
+        const refLat = mapLoc[0];
+        const refLng = mapLoc[1];
+        const userCoords = GPStoMeters(lat, lng, refLat, refLng);
+        const userPoint = point(userCoords.x, userCoords.y);
+
+        // Check collisions
+        let planarSet = new Flatten.PlanarSet();
+        drawnShapes.forEach(shape => {
+            planarSet.add(shape);
+        });
+        
+        const collidedShapes: any[] = planarSet.hit(userPoint);
+
+        // Get sounds from collided shapes
+        const sounds: SoundConfig[] = [];
+        collidedShapes.forEach(shape => {
+            const metadata = shapeMetadataRef.current.get(shape);
+            if (metadata?.soundType) {
+                sounds.push({
+                    soundType: metadata.soundType,
+                    note: 'C4'
+                });
+            }
+        });
+
+        // Create a unique key for the current sound set
+        const soundsKey = sounds.map(s => s.soundType).sort().join(',');
+        
+        // Only update audio if the sounds have changed
+        if (soundsKey !== currentSoundsRef.current) {
+            currentSoundsRef.current = soundsKey;
+            
+            const soundPlayer = SoundPlayer.getInstance();
+            if (sounds.length > 0) {
+                console.log('Starting sounds:', soundsKey);
+                soundPlayer.playMultiple(sounds);
+            } else {
+                console.log('Stopping all sounds');
+                soundPlayer.stopAll();
+            }
+        }
+
+    }, [isAudioEnabled, currentUserPositionKey, drawnShapes, mapLoc, point]);
+
     const getCoordinates = function (layer: any, type: any) {
         switch (type) {
             case 'marker':
@@ -289,23 +485,6 @@ const DrawMapZones = () => {
         URL.revokeObjectURL(url);
     };
 
-    const handleOpenMarkerDlg = () => {
-        setIsMarkerDlgOpen(true);
-    };
-
-    const handleCloseMarkerDlg = () => {
-        setIsMarkerDlgOpen(false);
-    };
-
-    const handleMarkerSelect = (markerId: number) => {
-        const marker = getMarkerByID(markerId);
-        if (marker) {  // Type guard to ensure marker is not undefined
-            chosenMarkerRef.current = marker;
-            console.log(`Selected marker: ${markerId}`);
-        } else {
-            console.log(`Marker with ID ${markerId} not found`);
-        }
-    };
 
     // Helper to draw shapes on the map from imported data
     const drawShapesOnMap = (shapes: DrawnLayer[]): DrawnLayer[] => {
@@ -435,8 +614,8 @@ const DrawMapZones = () => {
             console.log("no marker selected")
             return
         }
-        if (drawnShapes.length === 0 || drawnMarkers.length === 0) {
-            console.log("No markers or shapes to check collisions");
+        if (drawnShapes.length === 0) {
+            console.log("No shapes to check collisions");
             return [];
         }
         // set of unique shapes
@@ -474,8 +653,8 @@ const DrawMapZones = () => {
             console.log("no marker selected")
             return
         }
-        if (drawnShapes.length === 0 || drawnMarkers.length === 0) {
-            console.log("No markers or shapes to check collisions");
+        if (drawnShapes.length === 0) {
+            console.log("No shapes to check collisions");
             return [];
         }
         const collidedShapes = getCollisions(chosenMarker);
@@ -604,36 +783,14 @@ const DrawMapZones = () => {
     };
 
     const handleUpdateMarkerAudio = () => {
-        const collidedShapes = getCollisions(chosenMarkerRef.current);
-
-        if (collidedShapes) {
-            const soundPlayer = SoundPlayer.getInstance();
-
-            const sounds: SoundConfig[] = []
-            
-            collidedShapes.forEach(shape => {
-                const metadata = shapeMetadataRef.current.get(shape);
-                if (metadata?.soundType) {
-                    sounds.push({
-                        soundType: metadata.soundType,
-                        note: 'C4' // or get this from metadata if you store notes there
-                    });
-                }
-            });
-            
-            if (sounds.length > 0) {
-                soundPlayer.playMultiple(sounds);
-            } else {
-                console.log("No shapes with sounds found for this marker");
-            }
-        } else {
-            console.log("marker not present in any shapes")
-        }
+        setIsAudioEnabled(true);
     }
 
     const handleStopAudio = () => {
+        setIsAudioEnabled(false);
+        currentSoundsRef.current = ''; // Reset tracked sounds
         const soundPlayer = SoundPlayer.getInstance();
-        soundPlayer.stopAll()
+        soundPlayer.stopAll();
     }
 
     const handleSoundboxing = () => {
@@ -751,67 +908,44 @@ const DrawMapZones = () => {
             >
                 Sound test (debug)
             </button>
-            <div>
-                <button 
-                    onClick={handleOpenMarkerDlg}
-                    style={{
-                        position: 'absolute',
-                        top: '325px',
-                        left: '10px',
-                        backgroundColor: '#3b82f6',
-                        color: 'white',
-                        padding: '8px 12px',
-                        border: 'none',
-                        borderRadius: '4px',
-                        fontSize: '14px',
-                        cursor: 'pointer',
-                        zIndex: 1000,
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                    }}
-                >
-                Select Active User
-                </button>
-                <MarkerSelectDialog
-                    show={isMarkerDlgOpen}
-                    onClose={handleCloseMarkerDlg}
-                    onSelect={handleMarkerSelect}
-                    markerMeta={markerMetadataRef.current}
-                />
-            </div>
             <button
                 onClick={handleUpdateMarkerAudio}
+                disabled={isAudioEnabled}
+                style={{
+                    position: 'absolute',
+                    top: '325px',
+                    left: '10px',
+                    backgroundColor: isAudioEnabled ? '#6b7280' : '#10b981',
+                    color: 'white',
+                    padding: '8px 12px',
+                    border: 'none',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    cursor: isAudioEnabled ? 'not-allowed' : 'pointer',
+                    zIndex: 1000,
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    opacity: isAudioEnabled ? 0.6 : 1
+                }}
+            >
+                {isAudioEnabled ? '🔊 Audio On' : 'Start Audio'}
+            </button>
+            <button
+                onClick={handleStopAudio}
+                disabled={!isAudioEnabled}
                 style={{
                     position: 'absolute',
                     top: '360px',
                     left: '10px',
-                    backgroundColor: '#10b981',
+                    backgroundColor: isAudioEnabled ? '#f63b3bff' : '#6b7280',
                     color: 'white',
                     padding: '8px 12px',
                     border: 'none',
                     borderRadius: '4px',
                     fontSize: '14px',
-                    cursor: 'pointer',
+                    cursor: isAudioEnabled ? 'pointer' : 'not-allowed',
                     zIndex: 1000,
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                }}
-            >
-                Start User Audio
-            </button>
-            <button
-                onClick={handleStopAudio}
-                style={{
-                    position: 'absolute',
-                    top: '395px',
-                    left: '10px',
-                    backgroundColor: '#f63b3bff',
-                    color: 'white',
-                    padding: '8px 12px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    zIndex: 1000,
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                    opacity: isAudioEnabled ? 1 : 0.6
                 }}
             >
                 Stop Audio

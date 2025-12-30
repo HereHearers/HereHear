@@ -13,7 +13,8 @@ interface SoundKitProps {
 const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedSoundType }: SoundKitProps) => {
   const handleSoundSelect = (soundType: string, note: string) => {
     const soundPlayer = SoundPlayer.getInstance();
-    soundPlayer.playSingle(soundType, note);
+    // resort instead to sound bank for trying instruments
+    // soundPlayer.playSingle(soundType, note);
     onSoundSelect(soundType);
     onClose();
   };

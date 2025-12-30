@@ -1058,7 +1058,7 @@ const DrawMapZones = ({
         setShowDebugInstruments(!showDebugInstruments);
     }
 
-    const handleToggleDebugInstrument = async (instrumentId: string) => {
+    const handleToggleTryInstrument = async (instrumentId: string) => {
         const soundPlayer = SoundPlayer.getInstance();
 
         if (playingInstruments.has(instrumentId)) {
@@ -1278,7 +1278,7 @@ const DrawMapZones = ({
                             boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
                         }}
                     >
-                        sounds
+                        sound bank
                     </button>
                     <button
                         onClick={() => nearestShapes({threshold: 100})}
@@ -1375,7 +1375,7 @@ const DrawMapZones = ({
                                         <div style={{ fontSize: '12px', color: '#1f34b8ff' }}>ID: {instrument.id}</div>
                                     </div>
                                     <button
-                                        onClick={() => handleToggleDebugInstrument(instrument.id)}
+                                        onClick={() => handleToggleTryInstrument(instrument.id)}
                                         style={{
                                             padding: '6px 12px',
                                             border: 'none',

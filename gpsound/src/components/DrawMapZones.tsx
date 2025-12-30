@@ -68,7 +68,6 @@ const DrawMapZones = ({
     const [mapLoc, ] = useState<L.LatLngTuple>([42.308606, -83.747036]);
     const drawnItemsRef = useRef<L.FeatureGroup | null>(null);
     const [drawnShapes, setDrawnShapes] = useState<DrawnShape[]>([]);
-    const [drawnMarkers, setDrawnMarkers] = useState<Flatten.Point[]>([]);
     const shapeMetadataRef = useRef(new Map<DrawnShape, DrawnLayer>());
     const markerMetadataRef = useRef(new Map<Flatten.Point, DrawnLayer>());
     const [soundDropdown, setSoundDropdown] = useState<SoundDropdownState>({
@@ -119,19 +118,10 @@ const DrawMapZones = ({
     // Track if zone management menu is visible
     const [showZoneManagement, setShowZoneManagement] = useState(false);
     
-    // handling state updates for shapes and markers
+    // handling state updates for shapes
     const addUpdateShapeMeta = (k: DrawnShape, v: DrawnLayer) => {
         shapeMetadataRef.current.set(k, v);
     }
-    const addUpdateMarkerMeta = (k: Flatten.Point, v: DrawnLayer) => {
-        markerMetadataRef.current.set(k, v);
-    }
-    const removeMarkerFromState = (markerToRemove: Flatten.Point) => {
-        // Remove from metadata
-        markerMetadataRef.current.delete(markerToRemove);
-        // Remove from state
-        setDrawnMarkers(prev => prev.filter(marker => marker !== markerToRemove));
-    };
     const removeShapeFromState = (shapeToRemove: DrawnShape) => {
         // Remove from metadata
         shapeMetadataRef.current.delete(shapeToRemove);
@@ -139,31 +129,6 @@ const DrawMapZones = ({
         setDrawnShapes(prev => prev.filter(shape => shape !== shapeToRemove));
     };
 
-
-    // Helper function to find current sound type for a shape
-    const getCurrentsoundType = (shapeId: number) => {
-        for (const [_, metadata] of shapeMetadataRef.current.entries()) {
-            if (metadata.id === shapeId) {
-                return metadata.soundType;
-            }
-        }
-        // If not found in shapes, check marker metadata
-        for (const [_, metadata] of markerMetadataRef.current.entries()) {
-            if (metadata.id === shapeId) {
-                return metadata.soundType;
-            }
-        }
-        return null;
-    };
-
-    const getMarkerByID = (markerId: number) => {
-        for (const [marker, metadata] of markerMetadataRef.current.entries()) {
-            if (metadata.id === markerId) {
-                return marker;
-            }
-        }
-        return null;
-    }
     const getShapeByID = (shapeId: number) => {
         for (const [marker, metadata] of shapeMetadataRef.current.entries()) {
             if (metadata.id === shapeId) {
@@ -172,7 +137,6 @@ const DrawMapZones = ({
         }
         return null;
     }
-
 
     useEffect(() => {
         if (!mapRef.current || mapInstanceRef.current) return;
@@ -705,7 +669,6 @@ const DrawMapZones = ({
         if (drawnItemsRef.current) {
             drawnItemsRef.current.clearLayers();
             setDrawnShapes([]);
-            setDrawnMarkers([]);
             shapeMetadataRef.current.clear();
             markerMetadataRef.current.clear();
             syncIdToLayerRef.current.clear();
@@ -754,58 +717,6 @@ const DrawMapZones = ({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
-
-
-    // Helper to draw shapes on the map from imported data
-    const drawShapesOnMap = (shapes: DrawnLayer[]): DrawnLayer[] => {
-        if (!drawnItemsRef.current) return [];
-        // drawnItemsRef.current.clearLayers();
-        clearArrangement();
-        const updatedShapes: DrawnLayer[] = []
-        shapes.forEach(shape => {
-            let layer: L.Layer | null = null;
-            switch (shape.type) {
-                case 'marker':
-                    layer = L.marker(shape.coordinates);
-                    break;
-                case 'circle':
-                    layer = L.circle(shape.coordinates.center, { radius: shape.coordinates.radius });
-                    break;
-                case 'rectangle':
-                    layer = L.rectangle(shape.coordinates);
-                    break;
-                case 'polygon':
-                    layer = L.polygon(shape.coordinates);
-                    break;
-                case 'circlemarker':
-                    layer = L.circleMarker(shape.coordinates.center, { radius: shape.coordinates.radius });
-                    break;
-                default:
-                    break;
-            }
-            if (layer && drawnItemsRef.current) {
-                shape.id = L.stamp(layer)
-                drawnItemsRef.current.addLayer(layer);
-                // Add shape metadata
-
-                // Add click handler for sound dropdown
-                layer.on('click', function (e: any) {
-                    if (!mapInstanceRef.current) return;
-                    const containerPoint = mapInstanceRef.current.mouseEventToContainerPoint(e.originalEvent);
-                    const currentsoundType = getCurrentsoundType(shape.id);
-
-                    setSoundDropdown({
-                        show: true,
-                        position: { x: containerPoint.x, y: containerPoint.y },
-                        shapeId: shape.id,
-                        soundType: currentsoundType
-                    });
-                });
-            updatedShapes.push(shape)
-            }
-        });
-        return updatedShapes;
     };
 
     // Get flatten object from leaflet shape

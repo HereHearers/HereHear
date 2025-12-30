@@ -6,7 +6,7 @@ import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
 import { INSTRUMENT_DEFINITIONS } from './instrumentConfig';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
-import type { User, TransportState } from '../automergeTypes';
+import type { User, SyncedShape, TransportState } from '../automergeTypes';
 
 // Fix for default markers
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -38,15 +38,27 @@ interface DrawMapZonesProps {
     connectedUsers: (User & { isActive: boolean })[];
     currentUserId: string;
     updateUserPosition: (lat: number, lng: number) => void;
+    syncedShapes: SyncedShape[];
+    addShape: (type: string, coordinates: any, soundType?: string | null) => string;
+    updateShapeSound: (shapeId: string, soundType: string | null) => void;
+    updateShapeCoordinates: (shapeId: string, coordinates: any) => void;
+    deleteShape: (shapeId: string) => void;
+    clearAllShapes: () => void;
     updateTransportState: (transportState: TransportState) => void;
     initializeTransportIfNeeded: () => boolean;
     transportState?: TransportState;
 }
 
-const DrawMapZones = ({
-    connectedUsers,
-    currentUserId,
+const DrawMapZones = ({ 
+    connectedUsers, 
+    currentUserId, 
     updateUserPosition,
+    syncedShapes,
+    addShape,
+    updateShapeSound,
+    updateShapeCoordinates,
+    deleteShape,
+    clearAllShapes,
     updateTransportState,
     initializeTransportIfNeeded,
     transportState
@@ -78,6 +90,26 @@ const DrawMapZones = ({
     const [isAudioEnabled, setIsAudioEnabled] = useState(false);
     // Track currently playing sounds to avoid unnecessary restarts
     const currentSoundsRef = useRef<string>('');
+    // Map sync shape IDs to Leaflet layers for bidirectional lookup
+    const syncIdToLayerRef = useRef<Map<string, L.Layer>>(new Map());
+    const layerToSyncIdRef = useRef<Map<L.Layer, string>>(new Map());
+    // Track synced shape IDs we've already processed (from Automerge sync)
+    const processedSyncIdsRef = useRef<Set<string>>(new Set());
+    // Track shapes created locally that are pending Automerge confirmation
+    const pendingLocalShapesRef = useRef<Set<string>>(new Set());
+    
+    // Refs for Automerge functions to avoid stale closures in event handlers
+    const addShapeRef = useRef(addShape);
+    const deleteShapeRef = useRef(deleteShape);
+    const syncedShapesRef = useRef(syncedShapes);
+    
+    // Keep refs up to date
+    useEffect(() => {
+        addShapeRef.current = addShape;
+        deleteShapeRef.current = deleteShape;
+        syncedShapesRef.current = syncedShapes;
+    }, [addShape, deleteShape, syncedShapes]);
+
     // Track if this user is the transport master
     const [isTransportMaster, setIsTransportMaster] = useState(false);
     // Track current BPM for UI
@@ -183,30 +215,36 @@ const DrawMapZones = ({
         map.on(L.Draw.Event.CREATED, function (event: any) {
             const layer = event.layer;
             const type = event.layerType;
+            
+            // Skip markers - we use user markers instead
+            if (type === 'marker') return;
+            
             drawnItems.addLayer(layer);
 
-            const shapeId = L.stamp(layer);
             const shapeCoor = getCoordinates(layer, type);
             const flatShape = flattenShape(type, shapeCoor);
 
+            // Sync to Automerge and get the sync ID (use ref to avoid stale closure)
+            const syncId = addShapeRef.current(type, shapeCoor, null);
+            
+            // Track the mapping between sync ID and layer
+            syncIdToLayerRef.current.set(syncId, layer);
+            layerToSyncIdRef.current.set(layer, syncId);
+            processedSyncIdsRef.current.add(syncId);
+            // Mark as locally created, pending Automerge confirmation
+            pendingLocalShapesRef.current.add(syncId);
+
             const shapeInfo: DrawnLayer = {
-                    id: shapeId,
+                    id: L.stamp(layer), // Local ID for internal use
                     type: type,
                     coordinates: shapeCoor,
                     soundType: null
             }
 
-            // Add to appropriate state based on type
-            if (type === 'marker') {
-                if (flatShape instanceof Flatten.Point) {
-                    addUpdateMarkerMeta(flatShape, shapeInfo)
-                    setDrawnMarkers(prev => [...prev, flatShape]);
-                }
-            } else {
-                if (flatShape instanceof Flatten.Circle || flatShape instanceof Flatten.Polygon) {
-                    addUpdateShapeMeta(flatShape, shapeInfo)
-                    setDrawnShapes(prev => [...prev, flatShape]);
-                }
+            // Add to local state
+            if (flatShape instanceof Flatten.Circle || flatShape instanceof Flatten.Polygon) {
+                addUpdateShapeMeta(flatShape, shapeInfo);
+                setDrawnShapes(prev => [...prev, flatShape]);
             }
 
             // Add click handler to the new shape
@@ -214,16 +252,19 @@ const DrawMapZones = ({
                 layer.on('click', function (e: any) {
                     if (!mapInstanceRef.current) return;
                     const containerPoint = map.mouseEventToContainerPoint(e.originalEvent);
-                    const currentsoundType = getCurrentsoundType(shapeId);
+                    
+                    // Get sound type from synced shapes (use ref to avoid stale closure)
+                    const syncedShape = syncedShapesRef.current.find(s => s.id === syncId);
+                    const currentsoundType = syncedShape?.soundType || null;
 
                     setSoundDropdown({
                         show: true,
                         position: { x: containerPoint.x, y: containerPoint.y },
-                        shapeId: shapeId,
+                        shapeId: syncId as any, // Use sync ID for sound selection
                         soundType: currentsoundType
                     });
                 });
-                console.log('Shape drawn. shapeInfo:', shapeInfo, flatShape);
+                console.log('Shape created and synced:', syncId, type);
             }
         });
 
@@ -231,17 +272,27 @@ const DrawMapZones = ({
         map.on(L.Draw.Event.DELETED, function (e: any) {
             var deletedLayers = e.layers;
             deletedLayers.eachLayer(function (layer: any) {
+                // Get sync ID from layer
+                const syncId = layerToSyncIdRef.current.get(layer);
+                
+                if (syncId) {
+                    // Delete from Automerge (use ref to avoid stale closure)
+                    deleteShapeRef.current(syncId);
+                    
+                    // Clean up mappings
+                    syncIdToLayerRef.current.delete(syncId);
+                    layerToSyncIdRef.current.delete(layer);
+                    processedSyncIdsRef.current.delete(syncId);
+                    pendingLocalShapesRef.current.delete(syncId);
+                    
+                    console.log('Shape deleted and synced:', syncId);
+                }
+                
+                // Also remove from local state
                 const leafletId = L.stamp(layer);
-                console.log('Deleted id:', leafletId);
-                // Remove from shapes
                 const shapeToRemove = getShapeByID(leafletId);
                 if (shapeToRemove) {
                     removeShapeFromState(shapeToRemove);
-                }
-                // Remove from markers if not in shapes
-                const markerToRemove = getMarkerByID(leafletId);
-                if (markerToRemove) {
-                    removeMarkerFromState(markerToRemove);
                 }
             });
         });
@@ -383,6 +434,120 @@ const DrawMapZones = ({
         }
     }, [connectedUsers, currentUserId, updateUserPosition, mapLoc]);
 
+    // Sync shapes from Automerge to the map
+    useEffect(() => {
+        if (!mapInstanceRef.current || !drawnItemsRef.current) return;
+        
+        const map = mapInstanceRef.current;
+        const drawnItems = drawnItemsRef.current;
+        
+        // Track which sync IDs we've seen in this update
+        const currentSyncIds = new Set<string>();
+        
+        // Process each synced shape
+        syncedShapes.forEach(syncedShape => {
+            currentSyncIds.add(syncedShape.id);
+            
+            // If this was a locally created shape, mark it as confirmed
+            if (pendingLocalShapesRef.current.has(syncedShape.id)) {
+                pendingLocalShapesRef.current.delete(syncedShape.id);
+                console.log('Local shape confirmed by Automerge:', syncedShape.id);
+            }
+            
+            // Skip if we already have this shape (locally created or previously synced)
+            if (processedSyncIdsRef.current.has(syncedShape.id)) {
+                return;
+            }
+            
+            // This is a new shape from another user - create the Leaflet layer
+            let layer: L.Layer | null = null;
+            const coords = syncedShape.coordinates;
+            
+            switch (syncedShape.type) {
+                case 'circle':
+                    layer = L.circle(coords.center, { radius: coords.radius });
+                    break;
+                case 'rectangle':
+                    layer = L.rectangle(coords);
+                    break;
+                case 'polygon':
+                    layer = L.polygon(coords);
+                    break;
+                case 'circlemarker':
+                    layer = L.circleMarker(coords.center, { radius: coords.radius });
+                    break;
+                default:
+                    console.log('Unknown shape type:', syncedShape.type);
+                    break;
+            }
+            
+            if (layer) {
+                drawnItems.addLayer(layer);
+                
+                // Track the mapping
+                syncIdToLayerRef.current.set(syncedShape.id, layer);
+                layerToSyncIdRef.current.set(layer, syncedShape.id);
+                processedSyncIdsRef.current.add(syncedShape.id);
+                
+                // Create the Flatten shape for collision detection
+                const flatShape = flattenShape(syncedShape.type, coords);
+                if (flatShape instanceof Flatten.Circle || flatShape instanceof Flatten.Polygon) {
+                    const shapeInfo: DrawnLayer = {
+                        id: L.stamp(layer),
+                        type: syncedShape.type,
+                        coordinates: coords,
+                        soundType: syncedShape.soundType
+                    };
+                    addUpdateShapeMeta(flatShape, shapeInfo);
+                    setDrawnShapes(prev => [...prev, flatShape]);
+                }
+                
+                // Add click handler for sound dropdown
+                // Store syncId in closure, but get current sound from ref
+                const shapeIdForHandler = syncedShape.id;
+                layer.on('click', function (e: any) {
+                    if (!mapInstanceRef.current) return;
+                    const containerPoint = map.mouseEventToContainerPoint(e.originalEvent);
+                    // Get current sound from syncedShapesRef to avoid stale closure
+                    const currentShape = syncedShapesRef.current.find(s => s.id === shapeIdForHandler);
+                    const currentSound = currentShape?.soundType || null;
+                    
+                    setSoundDropdown({
+                        show: true,
+                        position: { x: containerPoint.x, y: containerPoint.y },
+                        shapeId: shapeIdForHandler as any,
+                        soundType: currentSound
+                    });
+                });
+                
+                console.log('Synced shape from another user:', syncedShape.id, syncedShape.type);
+            }
+        });
+        
+        // Remove shapes that are no longer in the synced list
+        // BUT don't remove shapes that are pending local confirmation
+        for (const [syncId, layer] of syncIdToLayerRef.current.entries()) {
+            if (!currentSyncIds.has(syncId) && !pendingLocalShapesRef.current.has(syncId)) {
+                // Remove from map
+                drawnItems.removeLayer(layer);
+                
+                // Clean up mappings
+                syncIdToLayerRef.current.delete(syncId);
+                layerToSyncIdRef.current.delete(layer);
+                processedSyncIdsRef.current.delete(syncId);
+                
+                // Remove from local state
+                const leafletId = L.stamp(layer);
+                const shapeToRemove = getShapeByID(leafletId);
+                if (shapeToRemove) {
+                    removeShapeFromState(shapeToRemove);
+                }
+                
+                console.log('Removed shape (deleted by another user):', syncId);
+            }
+        }
+    }, [syncedShapes]);
+
     // Initialize transport when audio is first enabled
     useEffect(() => {
         if (!isAudioEnabled) return;
@@ -460,14 +625,34 @@ const DrawMapZones = ({
         const collidedShapes: any[] = planarSet.hit(userPoint);
 
         // Get sounds from collided shapes
+        // Look up sound types from synced shapes (Automerge) for real-time updates
         const sounds: SoundConfig[] = [];
         collidedShapes.forEach(shape => {
             const metadata = shapeMetadataRef.current.get(shape);
-            if (metadata?.soundType) {
-                sounds.push({
-                    soundType: metadata.soundType,
-                    note: 'C4'
-                });
+            if (metadata) {
+                // Find the corresponding synced shape to get the current sound type
+                // The local metadata might be stale; sync has the truth
+                const leafletId = metadata.id;
+                
+                // Find the sync ID for this leaflet layer
+                let syncId: string | undefined;
+                for (const [id, layer] of syncIdToLayerRef.current.entries()) {
+                    if (L.stamp(layer) === leafletId) {
+                        syncId = id;
+                        break;
+                    }
+                }
+                
+                // Get sound type from synced shape
+                const syncedShape = syncedShapes.find(s => s.id === syncId);
+                const soundType = syncedShape?.soundType;
+                
+                if (soundType) {
+                    sounds.push({
+                        soundType: soundType,
+                        note: 'C4'
+                    });
+                }
             }
         });
 
@@ -488,7 +673,8 @@ const DrawMapZones = ({
             }
         }
 
-    }, [isAudioEnabled, currentUserPositionKey, drawnShapes, mapLoc, point]);
+    // Also include syncedShapes to react to sound changes from other users
+    }, [isAudioEnabled, currentUserPositionKey, drawnShapes, mapLoc, point, syncedShapes]);
 
     const getCoordinates = function (layer: any, type: any) {
         switch (type) {
@@ -522,11 +708,19 @@ const DrawMapZones = ({
             setDrawnMarkers([]);
             shapeMetadataRef.current.clear();
             markerMetadataRef.current.clear();
+            syncIdToLayerRef.current.clear();
+            layerToSyncIdRef.current.clear();
+            processedSyncIdsRef.current.clear();
+            pendingLocalShapesRef.current.clear();
             setSoundDropdown(prev => ({ ...prev, show: false }));
+            
+            // Clear shapes in Automerge
+            clearAllShapes();
         }
     };
 
     // Export arrangement (shapes and map view) to JSON file
+    // Exports from Automerge (syncedShapes) for consistency
     const exportArrangement = () => {
         let mapView = null;
         if (mapInstanceRef.current) {
@@ -537,10 +731,17 @@ const DrawMapZones = ({
                 zoom
             };
         }
+        
+        // Export from synced shapes (Automerge) instead of local metadata
+        const shapes = syncedShapesRef.current.map(shape => ({
+            id: shape.id,
+            type: shape.type,
+            coordinates: shape.coordinates,
+            soundType: shape.soundType
+        }));
+        
         const exportData = {
-            shapes: Array.from(shapeMetadataRef.current.values())
-                .concat(Array.from(markerMetadataRef.current.values())
-            ),
+            shapes,
             mapView
         };
         const dataStr = JSON.stringify(exportData, null, 2);
@@ -761,6 +962,7 @@ const DrawMapZones = ({
     }
 
     // Import arrangement (shapes and map view) from JSON file
+    // This syncs to Automerge so all users see the imported shapes
     const importArrangement = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (!file) return;
@@ -769,27 +971,18 @@ const DrawMapZones = ({
             try {
                 const importedData = JSON.parse(e.target?.result as string);
                 if (importedData && Array.isArray(importedData.shapes)) {
-                    const shapeMeta = drawShapesOnMap(importedData.shapes);
-                    const markerObjs: any[] = []
-                    const shapeObjs: any[] = []
-                    // const shapeMarkerMeta: DrawnLayer[] = []
-                    shapeMeta.forEach( (shape: DrawnLayer) => {
-                        const shapeObj = flattenShape(shape.type, shape.coordinates);
-                        if (shape.type == 'marker') {
-                            if (shapeObj instanceof Flatten.Point) {
-                                markerObjs.push(shapeObj);
-                                addUpdateMarkerMeta(shapeObj, shape);
-                            }
-                        } else {
-                            if (shapeObj instanceof Flatten.Circle || shapeObj instanceof Flatten.Polygon) {
-                                shapeObjs.push(shapeObj);
-                                addUpdateShapeMeta(shapeObj, shape);
-                            }
-                        }
-                    })
-
-                    setDrawnShapes(shapeObjs);
-                    setDrawnMarkers(markerObjs);
+                    // First, clear existing shapes (both local and in Automerge)
+                    clearArrangement();
+                    
+                    // Add each shape to Automerge - the sync effect will draw them
+                    importedData.shapes.forEach((shape: DrawnLayer) => {
+                        // Skip markers - we use user markers instead
+                        if (shape.type === 'marker') return;
+                        
+                        // Add to Automerge with the sound type
+                        addShapeRef.current(shape.type, shape.coordinates, shape.soundType);
+                    });
+                    
                     // Restore map view if present
                     if (importedData.mapView && mapInstanceRef.current) {
                         const { center, zoom } = importedData.mapView;
@@ -803,12 +996,17 @@ const DrawMapZones = ({
                             mapInstanceRef.current.setView([center[0], center[1]], zoom);
                         }
                     }
+                    
+                    console.log('Imported', importedData.shapes.length, 'shapes to Automerge');
                 } else if (Array.isArray(importedData)) {
-                    // Fallback for old format
-                    // TO REMOVE
-                    console.log("old format")
-                    setDrawnShapes(importedData);
-                    drawShapesOnMap(importedData);
+                    // Fallback for old format - just add shapes without sound
+                    console.log("Importing old format (no sound data)");
+                    clearArrangement();
+                    importedData.forEach((shape: any) => {
+                        if (shape.type && shape.coordinates) {
+                            addShapeRef.current(shape.type, shape.coordinates, null);
+                        }
+                    });
                 }
             } catch (err) {
                 console.log(err)
@@ -816,38 +1014,23 @@ const DrawMapZones = ({
             }
         };
         reader.readAsText(file);
+        
+        // Reset the input so the same file can be imported again
+        event.target.value = '';
     };
 
     // update soundType assigned to shape
     const handleSoundSelect = (soundType: string) => {
-        // Find and update the appropriate metadata
-        console.log("chosen sound type: ", soundType)
-        let updated = false;
+        const syncId = soundDropdown.shapeId as unknown as string;
         
-        // Try to update shape metadata first
-        for (const [shape, metadata] of shapeMetadataRef.current.entries()) {
-            if (metadata.id === soundDropdown.shapeId) {
-                addUpdateShapeMeta(shape, { ...metadata, soundType });
-                updated = true;
-                break;
-            }
-        }
-        
-        // If not found in shapes, try markers
-        if (!updated) {
-            for (const [marker, metadata] of markerMetadataRef.current.entries()) {
-                if (metadata.id === soundDropdown.shapeId) {
-                    addUpdateMarkerMeta(marker, { ...metadata, soundType });
-                    updated = true;
-                    break;
-                }
-            }
+        // Sync to Automerge
+        if (syncId) {
+            updateShapeSound(syncId, soundType);
+            console.log(`Synced sound "${soundType}" to shape ${syncId}`);
         }
 
         // Update the dropdown state with the new sound type
         setSoundDropdown(prev => ({ ...prev, soundType }));
-
-        console.log(`Assigned sound "${soundType}" to shape ${soundDropdown.shapeId}`);
     };
 
     const closeSoundDropdown = () => {

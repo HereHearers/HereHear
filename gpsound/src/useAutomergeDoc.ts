@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AutomergeUrl } from "@automerge/automerge-repo";
 import { useDocument } from "@automerge/automerge-repo-react-hooks";
 import { repo, getUserId } from "./automergeSetup";
-import type { GPSoundDoc } from "./automergeTypes";
+import type { GPSoundDoc, SyncedShape } from "./automergeTypes";
 
 /**
  * Custom hook that manages the Automerge document lifecycle
@@ -188,6 +188,77 @@ export const useAutomergeDoc = () => {
     });
   };
 
+  // Get all synced shapes
+  const syncedShapes = (() => {
+    if (!doc?.shapes) return [];
+    return Object.values(doc.shapes);
+  })();
+
+  // Function to add a new shape to the document
+  const addShape = (type: string, coordinates: any, soundType: string | null = null): string => {
+    const shapeId = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    
+    if (!changeDoc) return shapeId;
+    
+    changeDoc((d) => {
+      if (!d.shapes) {
+        d.shapes = {};
+      }
+      d.shapes[shapeId] = {
+        id: shapeId,
+        type,
+        coordinates,
+        soundType,
+        createdBy: userId,
+        createdAt: Date.now(),
+      };
+    });
+    
+    return shapeId;
+  };
+
+  // Function to update a shape's sound type
+  const updateShapeSound = (shapeId: string, soundType: string | null) => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      if (d.shapes && d.shapes[shapeId]) {
+        d.shapes[shapeId].soundType = soundType;
+      }
+    });
+  };
+
+  // Function to update a shape's coordinates (for edit operations)
+  const updateShapeCoordinates = (shapeId: string, coordinates: any) => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      if (d.shapes && d.shapes[shapeId]) {
+        d.shapes[shapeId].coordinates = coordinates;
+      }
+    });
+  };
+
+  // Function to delete a shape
+  const deleteShape = (shapeId: string) => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      if (d.shapes && d.shapes[shapeId]) {
+        delete d.shapes[shapeId];
+      }
+    });
+  };
+
+  // Function to clear all shapes
+  const clearAllShapes = () => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      d.shapes = {};
+    });
+  };
+
   // Function to update transport state (called by transport master)
   const updateTransportState = (transportState: any) => {
     if (!changeDoc) return;
@@ -229,6 +300,12 @@ export const useAutomergeDoc = () => {
     connectedUserCount: connectedUsers.length,
     updateUserName,
     updateUserPosition,
+    syncedShapes,
+    addShape,
+    updateShapeSound,
+    updateShapeCoordinates,
+    deleteShape,
+    clearAllShapes,
     updateTransportState,
     initializeTransportIfNeeded,
     isReady: !!doc,

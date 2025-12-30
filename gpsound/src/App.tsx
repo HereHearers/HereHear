@@ -13,6 +13,12 @@ function App() {
     userId,
     updateUserName,
     updateUserPosition,
+    syncedShapes,
+    addShape,
+    updateShapeSound,
+    updateShapeCoordinates,
+    deleteShape,
+    clearAllShapes,
     updateTransportState,
     initializeTransportIfNeeded,
     doc,
@@ -218,6 +224,12 @@ function App() {
         connectedUsers={connectedUsers}
         currentUserId={userId}
         updateUserPosition={updateUserPosition}
+        syncedShapes={syncedShapes}
+        addShape={addShape}
+        updateShapeSound={updateShapeSound}
+        updateShapeCoordinates={updateShapeCoordinates}
+        deleteShape={deleteShape}
+        clearAllShapes={clearAllShapes}
         updateTransportState={updateTransportState}
         initializeTransportIfNeeded={initializeTransportIfNeeded}
         transportState={doc?.transport}

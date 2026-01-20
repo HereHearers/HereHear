@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { AutomergeUrl } from "@automerge/automerge-repo";
 import { useDocument } from "@automerge/automerge-repo-react-hooks";
 import { repo, getUserId } from "./automergeSetup";
@@ -138,7 +138,7 @@ export const useAutomergeDoc = () => {
   // Use a longer timeout to account for browser throttling of background tabs
   // Browsers may throttle setInterval to ~1x per minute when tab is hidden
   // So we need to be generous with the timeout
-  const connectedUsers = (() => {
+  const connectedUsers = useMemo(() => {
     if (!doc?.users) return [];
     
     const now = Date.now();
@@ -158,10 +158,10 @@ export const useAutomergeDoc = () => {
           isActive, // Computed property - not stored in document
         };
       });
-  })();
+  }, [doc?.users]);
 
   // Function to update the current user's name
-  const updateUserName = (name: string) => {
+  const updateUserName = useCallback((name: string) => {
     if (!changeDoc) return;
     
     changeDoc((d) => {
@@ -172,10 +172,10 @@ export const useAutomergeDoc = () => {
         d.users[userId].name = name;
       }
     });
-  };
+  }, [changeDoc, userId]);
 
   // Function to update the current user's position
-  const updateUserPosition = (lat: number, lng: number) => {
+  const updateUserPosition = useCallback((lat: number, lng: number) => {
     if (!changeDoc) return;
 
     changeDoc((d) => {
@@ -186,16 +186,16 @@ export const useAutomergeDoc = () => {
         d.users[userId].position = { lat, lng };
       }
     });
-  };
+  }, [changeDoc, userId]);
 
   // Get all synced shapes
-  const syncedShapes = (() => {
+  const syncedShapes = useMemo(() => {
     if (!doc?.shapes) return [];
     return Object.values(doc.shapes);
-  })();
+  }, [doc?.shapes]);
 
   // Function to add a new shape to the document
-  const addShape = (type: string, coordinates: any, soundType: string | null = null): string => {
+  const addShape = useCallback((type: string, coordinates: any, soundType: string | null = null): string => {
     const shapeId = `shape-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     
     if (!changeDoc) return shapeId;
@@ -215,10 +215,10 @@ export const useAutomergeDoc = () => {
     });
     
     return shapeId;
-  };
+  }, [changeDoc, userId]);
 
   // Function to update a shape's sound type
-  const updateShapeSound = (shapeId: string, soundType: string | null) => {
+  const updateShapeSound = useCallback((shapeId: string, soundType: string | null) => {
     if (!changeDoc) return;
     
     changeDoc((d) => {
@@ -226,10 +226,10 @@ export const useAutomergeDoc = () => {
         d.shapes[shapeId].soundType = soundType;
       }
     });
-  };
+  }, [changeDoc]);
 
   // Function to update a shape's coordinates (for edit operations)
-  const updateShapeCoordinates = (shapeId: string, coordinates: any) => {
+  const updateShapeCoordinates = useCallback((shapeId: string, coordinates: any) => {
     if (!changeDoc) return;
     
     changeDoc((d) => {
@@ -237,10 +237,10 @@ export const useAutomergeDoc = () => {
         d.shapes[shapeId].coordinates = coordinates;
       }
     });
-  };
+  }, [changeDoc]);
 
   // Function to delete a shape
-  const deleteShape = (shapeId: string) => {
+  const deleteShape = useCallback((shapeId: string) => {
     if (!changeDoc) return;
     
     changeDoc((d) => {
@@ -248,29 +248,29 @@ export const useAutomergeDoc = () => {
         delete d.shapes[shapeId];
       }
     });
-  };
+  }, [changeDoc]);
 
   // Function to clear all shapes
-  const clearAllShapes = () => {
+  const clearAllShapes = useCallback(() => {
     if (!changeDoc) return;
     
     changeDoc((d) => {
       d.shapes = {};
     });
-  };
+  }, [changeDoc]);
 
   // Function to update transport state (called by transport master)
-  const updateTransportState = (transportState: any) => {
+  const updateTransportState = useCallback((transportState: any) => {
     if (!changeDoc) return;
 
     changeDoc((d) => {
       d.transport = transportState;
     });
-  };
+  }, [changeDoc]);
 
   // Function to initialize transport if it doesn't exist
   // Returns true if this user became the master, false otherwise
-  const initializeTransportIfNeeded = (): boolean => {
+  const initializeTransportIfNeeded = useCallback((): boolean => {
     if (!changeDoc || !doc) return false;
 
     // If transport already exists, don't initialize
@@ -290,7 +290,7 @@ export const useAutomergeDoc = () => {
     });
 
     return true;
-  };
+  }, [changeDoc, doc, userId]);
 
   return {
     doc,

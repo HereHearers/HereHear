@@ -7,6 +7,7 @@ import SoundPlayer from './SoundPlayer';
 import { INSTRUMENT_DEFINITIONS } from './instrumentConfig';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
 import type { User, SyncedShape, TransportState } from '../automergeTypes';
+import type { LocationMode } from '../useGeolocation';
 
 // Fix for default markers
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -47,6 +48,7 @@ interface DrawMapZonesProps {
     updateTransportState: (transportState: TransportState) => void;
     initializeTransportIfNeeded: () => boolean;
     transportState?: TransportState;
+    locationMode: LocationMode;
 }
 
 const DrawMapZones = ({ 
@@ -61,7 +63,8 @@ const DrawMapZones = ({
     clearAllShapes,
     updateTransportState,
     initializeTransportIfNeeded,
-    transportState
+    transportState,
+    locationMode
 }: DrawMapZonesProps) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
@@ -314,9 +317,11 @@ const DrawMapZones = ({
     }, []);
 
     // Function to create a custom icon with username label
-    const createUserIcon = (username: string, isCurrentUser: boolean) => {
+    const createUserIcon = (username: string, isCurrentUser: boolean, locMode?: LocationMode) => {
         const color = isCurrentUser ? '#3b82f6' : '#10b981'; // Blue for current user, green for others
         const borderColor = isCurrentUser ? '#fbbf24' : 'white'; // Gold for current user, white for others
+        const showGpsIndicator = isCurrentUser && locMode === 'gps';
+        
         const iconHtml = `
             <div style="position: relative;">
                 <div style="
@@ -335,6 +340,24 @@ const DrawMapZones = ({
                 ">
                     ${username.substring(0, 1).toUpperCase()}
                 </div>
+                ${showGpsIndicator ? `
+                <div style="
+                    position: absolute;
+                    top: -4px;
+                    right: -4px;
+                    width: 14px;
+                    height: 14px;
+                    background-color: #22c55e;
+                    border-radius: 50%;
+                    border: 2px solid white;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 8px;
+                ">
+                    📍
+                </div>
+                ` : ''}
                 <div style="
                     position: absolute;
                     top: 35px;
@@ -348,7 +371,7 @@ const DrawMapZones = ({
                     white-space: nowrap;
                     pointer-events: none;
                 ">
-                    ${username}${isCurrentUser ? ' (you)' : ''}
+                    ${username}${isCurrentUser ? ' (you)' : ''}${showGpsIndicator ? ' 📍' : ''}
                 </div>
             </div>
         `;
@@ -377,6 +400,8 @@ const DrawMapZones = ({
             
             const isCurrentUser = user.id === currentUserId;
             const username = user.name || 'Anonymous';
+            // Only allow dragging for current user in manual mode
+            const canDrag = isCurrentUser && locationMode === 'manual';
             
             // Check if marker already exists
             let marker = currentUserMarkers.get(user.id);
@@ -390,7 +415,16 @@ const DrawMapZones = ({
                         marker.setLatLng([user.position.lat, user.position.lng]);
                     }
                     // Update icon (in case username changed)
-                    marker.setIcon(createUserIcon(username, isCurrentUser));
+                    marker.setIcon(createUserIcon(username, isCurrentUser, locationMode));
+                    
+                    // Update draggable state based on location mode
+                    if (isCurrentUser) {
+                        if (canDrag && !marker.dragging?.enabled()) {
+                            marker.dragging?.enable();
+                        } else if (!canDrag && marker.dragging?.enabled()) {
+                            marker.dragging?.disable();
+                        }
+                    }
                 }
             } else {
                 // Create new marker
@@ -399,8 +433,8 @@ const DrawMapZones = ({
                     : [mapLoc[0], mapLoc[1]]; // Default to map center if no position
                 
                 marker = L.marker(position, {
-                    icon: createUserIcon(username, isCurrentUser),
-                    draggable: isCurrentUser, // Only current user's marker is draggable
+                    icon: createUserIcon(username, isCurrentUser, locationMode),
+                    draggable: canDrag,
                 }).addTo(map);
                 
                 // If this is the current user's marker, set up drag events
@@ -415,8 +449,8 @@ const DrawMapZones = ({
                         updateUserPosition(newPos.lat, newPos.lng);
                     });
                     
-                    // Initialize current user's position if not set
-                    if (!user.position) {
+                    // Initialize current user's position if not set (only in manual mode)
+                    if (!user.position && locationMode === 'manual') {
                         updateUserPosition(position[0], position[1]);
                     }
                 }
@@ -432,7 +466,7 @@ const DrawMapZones = ({
                 currentUserMarkers.delete(userId);
             }
         }
-    }, [connectedUsers, currentUserId, updateUserPosition, mapLoc]);
+    }, [connectedUsers, currentUserId, updateUserPosition, mapLoc, locationMode]);
 
     // Sync shapes from Automerge to the map
     useEffect(() => {

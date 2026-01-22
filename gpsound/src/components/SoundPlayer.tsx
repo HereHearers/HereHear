@@ -57,42 +57,63 @@ export class SoundPlayer {
     });
   }
 
-  // async playMultipleWithVolume(sounds: Array<SoundConfig & { volume: number }>): Promise<void> {
-  //     await Tone.start();
-      
-  //     this.stopAll();
-      
-  //     const synthConfigs = sounds.map(({ soundId, note, volume }) => {
-  //         const instrument = this.createSound(soundId);
-  //         this.activeSounds.push(instrument);
-          
-  //         // Set volume on the instrument
-  //         this.setInstrumentVolume(instrument, volume);
-          
-  //         return { instrument, note };
-  //     });
-      
-  //     const startTime = Tone.now() + 0.1;
-      
-  //     synthConfigs.forEach(({ instrument, note }) => {
-  //         this.triggerSound(instrument, note, startTime);
-  //     });
-  // }
+  async playMultipleWithVolume(sounds: Array<SoundConfig & { volume: number }>): Promise<void> {
+    await Tone.start();
+    
+    // Create a set of incoming sound IDs
+    const incomingSoundIds = new Set(sounds.map(s => s.soundId));
+    
+    // Stop sounds that are no longer needed
+    const soundsToStop: string[] = [];
+    for (const soundId of this.soundMap.keys()) {
+        if (!incomingSoundIds.has(soundId)) {
+            soundsToStop.push(soundId);
+        }
+    }
+    soundsToStop.forEach(soundId => this.stopSound(soundId));
+    
+    // Start new sounds or update existing ones
+    for (const { soundId, note, volume } of sounds) {
+        if (this.soundMap.has(soundId)) {
+            // Sound is already playing, just update volume
+            const sound = this.soundMap.get(soundId)!;
+            this.setSoundGain(sound, volume);
+        } else {
+            // New sound, start it
+            const sound = this.createSound(soundId);
+            this.soundMap.set(soundId, sound);
+            this.activeSounds.push(sound);
+            
+            // Set initial volume (no ramp)
+            this.setSoundGain(sound, volume, 0);
+            
+            // Start playing
+            const startTime = Tone.now() + 0.1;
+            this.triggerSound(sound, note, startTime);
+        }
+    }
+  }
 
-  // private setSoundGain(instrument: InstrumentGroup, volumeMultiplier: number, rampTime: number = 0.2): void {
-  //     const instruments = Array.isArray(instrument) ? instrument : [instrument];
-
-  //     instruments.forEach((inst) => {
-  //         if (inst.output?.gain) {
-  //             if (rampTime > 0) {
-  //                 inst.output.gain.rampTo(volumeMultiplier, rampTime);
-  //             } else {
-  //                 // Immediate volume change (for initial start)
-  //                 inst.output.gain.value = volumeMultiplier;
-  //             }
-  //         }
-  //     });
-  // }
+  private setSoundGain(sound: InstrumentGroup, volumeMultiplier: number, rampTime: number = 0.1): void {
+      const sounds = Array.isArray(sound) ? sound : [sound];
+      
+      sounds.forEach((inst) => {
+          // All Tone.js audio sources have a volume property
+          if ('volume' in inst) {
+              // Convert 0-1 multiplier to decibels
+              // 0 = -Infinity dB (silent)
+              // 1 = 0 dB (full volume)
+              const volumeDb = volumeMultiplier <= 0 ? -Infinity : 20 * Math.log10(volumeMultiplier);
+              
+              if (rampTime > 0) {
+                  (inst.volume as any).rampTo(volumeDb, rampTime);
+              } else {
+                  // Immediate volume change (for initial start)
+                  (inst.volume as any).value = volumeDb;
+              }
+          }
+      });
+  }
 
   async startSound(soundId: string, note: string = "C4"): Promise<void> {
     // If already playing, don't start again
@@ -111,11 +132,17 @@ export class SoundPlayer {
       const sound = this.soundMap.get(soundId);
       if (sound) {
           // Fade out before stopping
-          // this.setSoundGain(instrument, 0, 0.1);
+          this.setSoundGain(sound, 0, 0.1);
           
           setTimeout(() => {
               this.destroySound(sound);
               this.soundMap.delete(soundId);
+              
+              // Remove from activeSounds array
+              const index = this.activeSounds.indexOf(sound);
+              if (index > -1) {
+                  this.activeSounds.splice(index, 1);
+              }
           }, 150);
       }
   }

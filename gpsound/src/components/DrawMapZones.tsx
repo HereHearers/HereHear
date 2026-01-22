@@ -593,14 +593,6 @@ const DrawMapZones = ({
         const userPoint = getUserPoint();
         if (!userPoint) return;
 
-        // Check nearby shapes (threshold in meters)
-        const DISTANCE_THRESHOLD = 300; // meters
-        const nearby = nearestShapes({ threshold: DISTANCE_THRESHOLD });
-        if (nearby && nearby.length > 0) {
-            console.log('Nearby shapes:', nearby);
-            // Handle proximity sound logic here
-        }
-
         // Check collisions
         let planarSet = new Flatten.PlanarSet();
         drawnShapes.forEach(shape => {
@@ -608,58 +600,99 @@ const DrawMapZones = ({
         });
         
         const collidedShapes: any[] = planarSet.hit(userPoint);
-        // consider early return here if collidedShapes.length === 0
 
-        // Get sounds from collided shapes
-        // Look up sound types from synced shapes (Automerge) for real-time updates
-        const sounds: SoundConfig[] = [];
+        // Check nearby shapes (threshold in meters)
+        const DISTANCE_THRESHOLD = 300; // meters
+        const nearby = nearestShapes({ threshold: DISTANCE_THRESHOLD });
+
+        // Collect sounds with volume from collided shapes (full volume) and nearby shapes (modulated volume)
+        const sounds: Array<SoundConfig & { volume: number }> = [];
+
+        // Process collided shapes - full volume (100%)
         collidedShapes.forEach(shape => {
             const metadata = shapeMetadataRef.current.get(shape);
             if (metadata) {
-                // Find the corresponding synced shape to get the current sound type
-                // The local metadata might be stale; sync has the truth
-                const leafletId = metadata.id;
-                
-                // Find the sync ID for this leaflet layer
                 let syncId: string | undefined;
                 for (const [id, layer] of syncIdToLayerRef.current.entries()) {
-                    if (L.stamp(layer) === leafletId) {
+                    if (L.stamp(layer) === metadata.id) {
                         syncId = id;
                         break;
                     }
                 }
                 
-                // Get sound type from synced shape
                 const syncedShape = syncedShapes.find(s => s.id === syncId);
                 const soundId = syncedShape?.soundId;
                 
                 if (soundId) {
                     sounds.push({
                         soundId: soundId,
-                        note: 'C4'
+                        note: 'C4',
+                        volume: 1.0  // 100% volume for collided shapes
                     });
                 }
             }
         });
 
-        // Create a unique key for the current sound set
-        const soundsKey = sounds.map(s => s.soundId).sort().join(',');
+        // Process nearby shapes - modulated volume based on distance
+        if (nearby && nearby.length > 0) {
+            nearby.forEach(({ shape, dist }) => {
+                // Skip if already colliding (already processed above)
+                if (collidedShapes.includes(shape)) {
+                    return;
+                }
+
+                const metadata = shapeMetadataRef.current.get(shape);
+                if (metadata) {
+                    let syncId: string | undefined;
+                    for (const [id, layer] of syncIdToLayerRef.current.entries()) {
+                        if (L.stamp(layer) === metadata.id) {
+                            syncId = id;
+                            break;
+                        }
+                    }
+                    
+                    const syncedShape = syncedShapes.find(s => s.id === syncId);
+                    const soundId = syncedShape?.soundId;
+                    
+                    if (soundId) {
+                        // Calculate volume: 0% at threshold, 100% at distance 0
+                        // Linear interpolation: volume = 1 - (distance / threshold)
+                        const volume = Math.max(0, 1 - (dist / DISTANCE_THRESHOLD));
+                        
+                        sounds.push({
+                            soundId: soundId,
+                            note: 'C4',
+                            volume: volume
+                        });
+                    }
+                }
+            });
+        }
+
+        // Create a unique key based on sound IDs only (not volumes)
+        const soundsKey = sounds
+            .map(s => s.soundId)
+            .sort()
+            .join(',');
         
-        // Only update audio if the sounds have changed
+        // Check if the SET of sounds changed
         if (soundsKey !== currentSoundsRef.current) {
             currentSoundsRef.current = soundsKey;
             
             const soundPlayer = SoundPlayer.getInstance();
             if (sounds.length > 0) {
-                console.log('Starting sounds:', soundsKey);
-                soundPlayer.playMultiple(sounds);
+                console.log('Updating sounds with volumes:', sounds);
+                soundPlayer.playMultipleWithVolume(sounds);
             } else {
                 console.log('Stopping all sounds');
                 soundPlayer.stopAll();
             }
+        } else if (sounds.length > 0) {
+            // Sounds haven't changed, but volumes might have - update them
+            const soundPlayer = SoundPlayer.getInstance();
+            soundPlayer.playMultipleWithVolume(sounds);
         }
 
-    // Also include syncedShapes to react to sound changes from other users
     }, [isAudioEnabled, currentUserPositionKey, drawnShapes, mapLoc, point, syncedShapes]);
 
     const getCoordinates = function (layer: any, type: any) {

@@ -6,7 +6,8 @@ import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
 import { SOUND_DEFINITIONS } from './instrumentConfig';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
-import type { User, SyncedShape, TransportState } from '../automergeTypes';
+import type { User, SyncedShape } from '../automergeTypes';
+import { TimingSync } from './TimingSync';
 
 // Fix for default markers
 import icon from 'leaflet/dist/images/marker-icon.png';
@@ -44,9 +45,6 @@ interface DrawMapZonesProps {
     updateShapeCoordinates: (shapeId: string, coordinates: any) => void;
     deleteShape: (shapeId: string) => void;
     clearAllShapes: () => void;
-    updateTransportState: (transportState: TransportState) => void;
-    initializeTransportIfNeeded: () => boolean;
-    transportState?: TransportState;
 }
 
 const DrawMapZones = ({ 
@@ -59,9 +57,6 @@ const DrawMapZones = ({
     updateShapeCoordinates,
     deleteShape,
     clearAllShapes,
-    updateTransportState,
-    initializeTransportIfNeeded,
-    transportState
 }: DrawMapZonesProps) => {
     const mapRef = useRef<HTMLDivElement>(null);
     const mapInstanceRef = useRef<L.Map | null>(null);
@@ -96,6 +91,10 @@ const DrawMapZones = ({
     const processedSyncIdsRef = useRef<Set<string>>(new Set());
     // Track shapes created locally that are pending Automerge confirmation
     const pendingLocalShapesRef = useRef<Set<string>>(new Set());
+
+    // timing sync state
+    const [timingSyncReady, setTimingSyncReady] = useState(false);
+    const [timingSyncError, setTimingSyncError] = useState<string | null>(null);
     
     // Track last location update time
     const lastCalculationRef = useRef<number>(0);
@@ -113,8 +112,49 @@ const DrawMapZones = ({
         syncedShapesRef.current = syncedShapes;
     }, [addShape, deleteShape, syncedShapes]);
 
-    // Track if this user is the transport master
-    const [isTransportMaster, setIsTransportMaster] = useState(false);
+    // Initialize TimingSync when audio is enabled
+    useEffect(() => {
+        if (!isAudioEnabled || timingSyncReady) return;
+
+        const initializeTiming = async () => {
+            try {
+                const timingSync = TimingSync.getInstance();
+
+                // Use currentUserId as the session ID
+                const sessionId = currentUserId;
+
+                console.log('Initializing TimingSync...');
+                await timingSync.initialize(sessionId);
+                setTimingSyncReady(true);
+                console.log('TimingSync ready!');
+
+                // Start Tone.js audio context
+                const soundPlayer = SoundPlayer.getInstance();
+                await soundPlayer.initializeTransport(120);
+
+                // Sync UI BPM with the current timing object state
+                const state = timingSync.getState();
+                if (state && state.bpm > 0) {
+                    setCurrentBPM(state.bpm);
+                    console.log('Synced to existing BPM:', state.bpm);
+                }
+
+                // Register callback to update UI when BPM changes from other clients
+                timingSync.onBpmChange((newBpm) => {
+                    console.log('BPM changed remotely to:', newBpm);
+                    setCurrentBPM(newBpm);
+                });
+
+            } catch (error) {
+                console.error('Failed to initialize TimingSync:', error);
+                setTimingSyncError('Failed to connect to timing server');
+            }
+        };
+
+        initializeTiming();
+    }, [isAudioEnabled, timingSyncReady, currentUserId]);
+
+
     // Track current BPM for UI
     const [currentBPM, setCurrentBPM] = useState(120);
     // Track if transport controls are visible
@@ -516,46 +556,6 @@ const DrawMapZones = ({
         }
     }, [syncedShapes]);
 
-    // Initialize transport when audio is first enabled
-    useEffect(() => {
-        if (!isAudioEnabled) return;
-
-        const soundPlayer = SoundPlayer.getInstance();
-        const becameMaster = initializeTransportIfNeeded();
-
-        if (becameMaster) {
-            // This user is the first to enable audio, so they become the transport master
-            console.log('Became transport master - initializing transport');
-            setIsTransportMaster(true);
-            soundPlayer.initializeTransport(120);
-
-            // Broadcast initial transport state
-            const initialState = soundPlayer.getTransportState(currentUserId);
-            updateTransportState(initialState);
-            setCurrentBPM(initialState.bpm);
-        } else {
-            // Sync to existing transport state
-            console.log('Syncing to existing transport');
-            setIsTransportMaster(false);
-            if (transportState) {
-                soundPlayer.syncTransportState(transportState);
-                setCurrentBPM(transportState.bpm);
-            }
-        }
-    }, [isAudioEnabled, currentUserId, initializeTransportIfNeeded, updateTransportState]);
-
-    // Sync transport state when it changes from other users
-    useEffect(() => {
-        if (!isAudioEnabled || !transportState) return;
-
-        // Don't sync if this user is the master (to avoid feedback loops)
-        if (transportState.masterId === currentUserId) return;
-
-        const soundPlayer = SoundPlayer.getInstance();
-        soundPlayer.syncTransportState(transportState);
-        setCurrentBPM(transportState.bpm);
-    }, [transportState, isAudioEnabled, currentUserId]);
-
     // Helper function to get current user's position as a Flatten.Point
     const getUserPoint = () => {
         const currentUser = connectedUsers.find(u => u.id === currentUserId);
@@ -576,7 +576,6 @@ const DrawMapZones = ({
     })();
 
     // Automatically update audio based on user position
-    // TODO: incorporate nearestShapes to ramp volume as approaching nearest zone
     useEffect(() => {
         // throttle location update calculation
         const now = Date.now();
@@ -863,13 +862,13 @@ const DrawMapZones = ({
                 planarSet.add(shape)
         });
         
-        // Compute marer collisions (may need to edit to update state var rather than create new var)
+        // Compute marker collisions (may need to edit to update state var rather than create new var)
         const collidedShapes: any[] = planarSet.hit(chosenMarker); 
         if (collidedShapes.length > 0) {
-            console.log("get collisions output:", collidedShapes)
+            // console.log("get collisions output:", collidedShapes)
             return collidedShapes
         } else {
-            console.log("no marker collisions")
+            // console.log("no marker collisions")
             return null
         }
     };
@@ -923,7 +922,7 @@ const DrawMapZones = ({
             }  
         })
         shapeProximity.sort((a,b) => a.dist - b.dist)
-        console.log(shapeProximity)
+        // console.log(shapeProximity)
         return shapeProximity
     }
 
@@ -1048,31 +1047,30 @@ const DrawMapZones = ({
         setShowDebugSounds(false);
     }
 
-    const handleCloseTransportControls = () => {
-        setShowTransportControls(false);
-    }
-
     const handleCloseZoneManagement = () => {
         setShowZoneManagement(false);
     }
 
-    // Transport control handlers
+    const handleCloseTransportControls = () => {
+        setShowTransportControls(false);
+    }
+
     const handleTransportStart = () => {
-        const soundPlayer = SoundPlayer.getInstance();
-        const newState = soundPlayer.startTransport(currentUserId);
-        updateTransportState(newState);
+        if (!timingSyncReady) return;
+        const timingSync = TimingSync.getInstance();
+        timingSync.play();
     };
 
     const handleTransportStop = () => {
-        const soundPlayer = SoundPlayer.getInstance();
-        const newState = soundPlayer.stopTransport(currentUserId);
-        updateTransportState(newState);
+        if (!timingSyncReady) return;
+        const timingSync = TimingSync.getInstance();
+        timingSync.pause();
     };
 
     const handleBPMChange = (newBPM: number) => {
-        const soundPlayer = SoundPlayer.getInstance();
-        const newState = soundPlayer.setBPM(newBPM, currentUserId);
-        updateTransportState(newState);
+        if (!timingSyncReady) return;
+        const timingSync = TimingSync.getInstance();
+        timingSync.setBPM(newBPM);
         setCurrentBPM(newBPM);
     };
 
@@ -1411,8 +1409,8 @@ const DrawMapZones = ({
                 Stop Audio
             </button>
 
-            {/* Transport Controls */}
-            {isAudioEnabled && showTransportControls && (
+            {/* Transport controls panel */}
+            {showTransportControls && (
                 <>
                     {/* Overlay to close on click outside */}
                     <div
@@ -1439,117 +1437,133 @@ const DrawMapZones = ({
                         zIndex: 1001,
                         minWidth: '200px',
                     }}>
-                    <div style={{
-                        fontSize: '12px',
-                        fontWeight: 'bold',
-                        marginBottom: '8px',
-                        color: '#374151',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px'
-                    }}>
-                        🎵 Transport Controls
-                        {transportState?.masterId === currentUserId && (
-                            <span style={{
-                                fontSize: '10px',
-                                backgroundColor: '#3b82f6',
-                                color: 'white',
-                                padding: '2px 6px',
-                                borderRadius: '3px',
-                                fontWeight: 'normal'
-                            }}>
-                                Master
-                            </span>
-                        )}
-                    </div>
+                        <div style={{
+                            fontSize: '12px',
+                            fontWeight: 'bold',
+                            marginBottom: '8px',
+                            color: '#374151',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '6px'
+                        }}>
+                            🎵 Transport Controls
+                            {timingSyncReady ? (
+                                <span style={{
+                                    fontSize: '10px',
+                                    backgroundColor: '#10b981',
+                                    color: 'white',
+                                    padding: '2px 6px',
+                                    borderRadius: '3px',
+                                    fontWeight: 'normal'
+                                }}>
+                                    Synced
+                                </span>
+                            ) : timingSyncError ? (
+                                <span style={{
+                                    fontSize: '10px',
+                                    backgroundColor: '#ef4444',
+                                    color: 'white',
+                                    padding: '2px 6px',
+                                    borderRadius: '3px',
+                                    fontWeight: 'normal'
+                                }}>
+                                    Error
+                                </span>
+                            ) : (
+                                <span style={{
+                                    fontSize: '10px',
+                                    backgroundColor: '#f59e0b',
+                                    color: 'white',
+                                    padding: '2px 6px',
+                                    borderRadius: '3px',
+                                    fontWeight: 'normal'
+                                }}>
+                                    Connecting...
+                                </span>
+                            )}
+                        </div>
 
-                    {/* Play/Pause buttons */}
-                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        {timingSyncError && (
+                            <div style={{
+                                fontSize: '10px',
+                                color: '#ef4444',
+                                marginBottom: '8px',
+                                padding: '4px',
+                                backgroundColor: '#fee2e2',
+                                borderRadius: '3px'
+                            }}>
+                                {timingSyncError}
+                            </div>
+                        )}
+
+                        {/* Play/Pause Button */}
                         <button
                             onClick={handleTransportStart}
-                            disabled={transportState?.isPlaying}
+                            disabled={!timingSyncReady}
                             style={{
-                                flex: 1,
-                                backgroundColor: transportState?.isPlaying ? '#6b7280' : '#10b981',
+                                width: '100%',
+                                backgroundColor: timingSyncReady ? '#10b981' : '#6b7280',
                                 color: 'white',
                                 padding: '8px 12px',
                                 border: 'none',
                                 borderRadius: '4px',
                                 fontSize: '14px',
-                                cursor: transportState?.isPlaying ? 'not-allowed' : 'pointer',
-                                opacity: transportState?.isPlaying ? 0.6 : 1,
-                                fontWeight: '600'
+                                cursor: timingSyncReady ? 'pointer' : 'not-allowed',
+                                marginBottom: '8px',
+                                fontWeight: '500',
+                                opacity: timingSyncReady ? 1 : 0.6
                             }}
                         >
                             ▶ Play
                         </button>
+
+                        {/* Stop Button */}
                         <button
                             onClick={handleTransportStop}
-                            disabled={!transportState?.isPlaying}
+                            disabled={!timingSyncReady}
                             style={{
-                                flex: 1,
-                                backgroundColor: !transportState?.isPlaying ? '#6b7280' : '#ef4444',
+                                width: '100%',
+                                backgroundColor: timingSyncReady ? '#ef4444' : '#6b7280',
                                 color: 'white',
                                 padding: '8px 12px',
                                 border: 'none',
                                 borderRadius: '4px',
                                 fontSize: '14px',
-                                cursor: !transportState?.isPlaying ? 'not-allowed' : 'pointer',
-                                opacity: !transportState?.isPlaying ? 0.6 : 1,
-                                fontWeight: '600'
+                                cursor: timingSyncReady ? 'pointer' : 'not-allowed',
+                                marginBottom: '8px',
+                                fontWeight: '500',
+                                opacity: timingSyncReady ? 1 : 0.6
                             }}
                         >
                             ⏸ Pause
                         </button>
-                    </div>
 
-                    {/* BPM Control */}
-                    <div style={{ marginBottom: '4px' }}>
-                        <label style={{
-                            fontSize: '11px',
-                            color: '#6b7280',
-                            display: 'block',
-                            marginBottom: '4px',
-                            fontWeight: '500'
-                        }}>
-                            Tempo: {currentBPM} BPM
-                        </label>
-                        <input
-                            type="range"
-                            min="60"
-                            max="200"
-                            value={currentBPM}
-                            onChange={(e) => handleBPMChange(Number(e.target.value))}
-                            style={{
-                                width: '100%',
-                                cursor: 'pointer'
-                            }}
-                        />
-                        <div style={{
-                            display: 'flex',
-                            justifyContent: 'space-between',
-                            fontSize: '9px',
-                            color: '#9ca3af',
-                            marginTop: '2px'
-                        }}>
-                            <span>60</span>
-                            <span>200</span>
+                        {/* BPM Control */}
+                        <div style={{ marginTop: '12px' }}>
+                            <label style={{
+                                fontSize: '11px',
+                                fontWeight: 'bold',
+                                color: '#374151',
+                                display: 'block',
+                                marginBottom: '4px'
+                            }}>
+                                BPM: {currentBPM}
+                            </label>
+                            <input
+                                type="range"
+                                min="60"
+                                max="180"
+                                value={currentBPM}
+                                onChange={(e) => handleBPMChange(parseInt(e.target.value))}
+                                disabled={!timingSyncReady}
+                                style={{
+                                    width: '100%',
+                                    cursor: timingSyncReady ? 'pointer' : 'not-allowed',
+                                    opacity: timingSyncReady ? 1 : 0.6
+                                }}
+                            />
                         </div>
                     </div>
-
-                    {/* Transport info */}
-                    {transportState && (
-                        <div style={{
-                            fontSize: '10px',
-                            color: '#9ca3af',
-                            marginTop: '8px',
-                            paddingTop: '8px',
-                            borderTop: '1px solid #e5e7eb'
-                        }}>
-                            Position: {transportState.position}
-                        </div>
-                    )}
-                </div>
                 </>
             )}
 

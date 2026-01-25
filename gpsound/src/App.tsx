@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import DrawMapZones from './components/DrawMapZones';
 import { useAutomergeDoc } from './useAutomergeDoc';
+import { useGeolocation } from './useGeolocation';
+import type { LocationMode } from './useGeolocation';
 
 // @ts-ignore
 window.type = true;
@@ -26,6 +28,51 @@ function App() {
   } = useAutomergeDoc();
   const [isExpanded, setIsExpanded] = useState(false);
   const [nameInput, setNameInput] = useState('');
+  const [locationMode, setLocationMode] = useState<LocationMode>(() => {
+    const saved = localStorage.getItem('gpsound-location-mode');
+    return (saved === 'gps' || saved === 'manual') ? saved : 'manual';
+  });
+  const [showLocationSettings, setShowLocationSettings] = useState(false);
+
+  const {
+    latitude,
+    longitude,
+    accuracy,
+    error: gpsError,
+    isWatching,
+    isSupported: isGpsSupported,
+    startWatching,
+    stopWatching,
+  } = useGeolocation({
+    enableHighAccuracy: true,
+    timeout: 15000,
+    maximumAge: 5000,
+  });
+
+  // Update user position when GPS coordinates change
+  useEffect(() => {
+    if (locationMode === 'gps' && latitude !== null && longitude !== null) {
+      updateUserPosition(latitude, longitude);
+    }
+  }, [locationMode, latitude, longitude, updateUserPosition]);
+
+  // Start/stop GPS watching based on location mode
+  useEffect(() => {
+    if (locationMode === 'gps') {
+      startWatching();
+    } else {
+      stopWatching();
+    }
+  }, [locationMode, startWatching, stopWatching]);
+
+  // Save location mode to localStorage when it changes
+  useEffect(() => {
+    localStorage.setItem('gpsound-location-mode', locationMode);
+  }, [locationMode]);
+
+  const handleLocationModeChange = (mode: LocationMode) => {
+    setLocationMode(mode);
+  };
 
   // Get current user's name from the document
   const currentUser = connectedUsers.find(u => u.id === userId);
@@ -85,6 +132,147 @@ function App() {
             onFocus={(e) => e.target.style.borderColor = '#3b82f6'}
             onBlur={(e) => e.target.style.borderColor = '#d1d5db'}
           />
+        </div>
+
+        {/* Location settings toggle */}
+        <div style={{
+          padding: '8px 12px',
+          borderBottom: '1px solid #e5e7eb',
+        }}>
+          <div
+            onClick={() => setShowLocationSettings(!showLocationSettings)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ fontSize: '14px' }}>
+                {locationMode === 'gps' ? '📍' : '✋'}
+              </span>
+              <span style={{ fontSize: '13px', fontWeight: 500 }}>
+                {locationMode === 'gps' ? 'GPS Location' : 'Manual Location'}
+              </span>
+              {locationMode === 'gps' && isWatching && (
+                <span style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  backgroundColor: '#22c55e',
+                  animation: 'pulse 2s infinite',
+                }} />
+              )}
+            </div>
+            <span style={{
+              fontSize: '12px',
+              transition: 'transform 0.2s',
+              transform: showLocationSettings ? 'rotate(180deg)' : 'rotate(0deg)',
+            }}>
+              ▼
+            </span>
+          </div>
+
+          {/* Expanded location settings */}
+          {showLocationSettings && (
+            <div style={{ marginTop: '10px' }}>
+              {/* Mode toggle buttons */}
+              <div style={{
+                display: 'flex',
+                gap: '6px',
+                marginBottom: '8px',
+              }}>
+                <button
+                  onClick={() => handleLocationModeChange('manual')}
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                    backgroundColor: locationMode === 'manual' ? '#3b82f6' : '#e5e7eb',
+                    color: locationMode === 'manual' ? 'white' : '#4b5563',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  ✋ Manual
+                </button>
+                <button
+                  onClick={() => handleLocationModeChange('gps')}
+                  disabled={!isGpsSupported}
+                  style={{
+                    flex: 1,
+                    padding: '6px 10px',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    cursor: isGpsSupported ? 'pointer' : 'not-allowed',
+                    backgroundColor: locationMode === 'gps' ? '#3b82f6' : '#e5e7eb',
+                    color: locationMode === 'gps' ? 'white' : '#4b5563',
+                    opacity: isGpsSupported ? 1 : 0.5,
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  📍 GPS
+                </button>
+              </div>
+
+              {/* GPS status info */}
+              {locationMode === 'gps' && (
+                <div style={{
+                  fontSize: '11px',
+                  color: '#6b7280',
+                  padding: '6px 8px',
+                  backgroundColor: '#f9fafb',
+                  borderRadius: '4px',
+                }}>
+                  {gpsError ? (
+                    <div style={{ color: '#ef4444' }}>
+                      ⚠️ {gpsError}
+                    </div>
+                  ) : isWatching && latitude !== null ? (
+                    <>
+                      <div>Lat: {latitude.toFixed(6)}</div>
+                      <div>Lng: {longitude?.toFixed(6)}</div>
+                      {accuracy && (
+                        <div style={{ marginTop: '2px', color: '#9ca3af' }}>
+                          Accuracy: ±{accuracy.toFixed(0)}m
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div>Acquiring location...</div>
+                  )}
+                </div>
+              )}
+
+              {/* Help text */}
+              <div style={{
+                fontSize: '10px',
+                color: '#9ca3af',
+                marginTop: '6px',
+              }}>
+                {locationMode === 'manual' 
+                  ? 'Drag your marker on the map to set position'
+                  : 'Your position updates automatically from GPS'}
+              </div>
+
+              {!isGpsSupported && (
+                <div style={{
+                  fontSize: '10px',
+                  color: '#ef4444',
+                  marginTop: '4px',
+                }}>
+                  GPS not supported in this browser
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* User count indicator - clickable */}
@@ -233,6 +421,7 @@ function App() {
         updateTransportState={updateTransportState}
         initializeTransportIfNeeded={initializeTransportIfNeeded}
         transportState={doc?.transport}
+        locationMode={locationMode}
       />
     </>
   );

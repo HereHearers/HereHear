@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 
-export interface InstrumentDefinition {
+export interface SoundDefinition {
   id: string;
   name: string;
   defaultNote: string;
@@ -10,7 +10,7 @@ export interface InstrumentDefinition {
 type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
 type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any>;
 
-export const INSTRUMENT_DEFINITIONS: InstrumentDefinition[] = [
+export const SOUND_DEFINITIONS: SoundDefinition[] = [
   {
     id: 'fm-synth',
     name: 'FM Synth',
@@ -677,6 +677,6 @@ export const INSTRUMENT_DEFINITIONS: InstrumentDefinition[] = [
 ];
 
 // Helper to get instrument definition by id
-export function getInstrumentDefinition(id: string): InstrumentDefinition | undefined {
-  return INSTRUMENT_DEFINITIONS.find(def => def.id === id);
+export function getSoundDefinition(id: string): SoundDefinition | undefined {
+  return SOUND_DEFINITIONS.find(def => def.id === id);
 }

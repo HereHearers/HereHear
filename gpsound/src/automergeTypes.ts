@@ -23,7 +23,7 @@ export interface SyncedShape {
   id: string; // Unique identifier (string for CRDT compatibility)
   type: string; // 'polygon', 'circle', 'rectangle', 'circlemarker'
   coordinates: any; // Raw coordinates from Leaflet
-  soundType: string | null; // Associated sound (null if none)
+  soundId: string | null; // Associated sound (null if none)
   createdBy: string; // User ID who created this shape
   createdAt: number; // Timestamp
 }

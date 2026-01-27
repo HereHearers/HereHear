@@ -1,15 +1,16 @@
 import Flatten from 'flatten-js';
 
 export interface SoundConfig {
-  soundType: string;
+  soundId: string;
   note: string;
+  volume?: number;  // Optional volume (0-1 range)
 }
 
 export interface DrawnLayer {
     id: number;
     type: string;
     coordinates: any;
-    soundType: string | null;
+    soundId: string | null;
 }
 
 export type DrawnShape = Flatten.Circle | Flatten.Polygon;

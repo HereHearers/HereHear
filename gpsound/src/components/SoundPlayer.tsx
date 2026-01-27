@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import { type SoundConfig } from '../sharedTypes';
-import { getInstrumentDefinition } from './instrumentConfig';
+import { getSoundDefinition } from './instrumentConfig';
 import type { TransportState } from '../automergeTypes';
 
 type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
@@ -9,8 +9,8 @@ type InstrumentGroup = Instrument | Instrument[];
 
 export class SoundPlayer {
   private static instance: SoundPlayer;
-  private activeInstruments: InstrumentGroup[] = [];
-  private instrumentMap: Map<string, InstrumentGroup> = new Map();
+  private activeSounds: InstrumentGroup[] = []; //array of all currently playing instruments - used by stopAll() to quickly stop everything without needing to know IDs.
+  private soundMap: Map<string, InstrumentGroup> = new Map(); //Tracks sounds by their ID/key (like soundId) - used for the startSound() and stopSound() methods where you need to start/stop specific sounds by name.
   private isSyncingTransport: boolean = false; // Prevent feedback loops during sync
 
   static getInstance(): SoundPlayer {
@@ -20,21 +20,21 @@ export class SoundPlayer {
     return SoundPlayer.instance;
   }
 
-  async playSingle(soundType: string, note: string): Promise<void> {
+  async playSingle(soundId: string, note: string): Promise<void> {
     await Tone.start();
     const timeLimit = 8000;
     // const timeLimit = 1e+20;
 
-    const instrument = this.createInstrument(soundType);
-    this.activeInstruments.push(instrument);  // Track it so stopAll() can kill it
-    this.triggerInstrument(instrument, note);
+    const sound = this.createSound(soundId);
+    this.activeSounds.push(sound);  // Track it so stopAll() can kill it
+    this.triggerSound(sound, note);
 
     setTimeout(() => {
-      this.destroyInstrument(instrument);
-      // Remove from active instruments
-      const index = this.activeInstruments.indexOf(instrument);
+      this.destroySound(sound);
+      // Remove from active sounds
+      const index = this.activeSounds.indexOf(sound);
       if (index > -1) {
-        this.activeInstruments.splice(index, 1);
+        this.activeSounds.splice(index, 1);
       }
     }, timeLimit);
   }
@@ -44,57 +44,120 @@ export class SoundPlayer {
     
     this.stopAll();
     
-    const synthConfigs = sounds.map(({ soundType, note }) => {
-      const instrument = this.createInstrument(soundType);
-      this.activeInstruments.push(instrument);
-      return { instrument, note };
+    const synthConfigs = sounds.map(({ soundId, note }) => {
+      const sound = this.createSound(soundId);
+      this.activeSounds.push(sound);
+      return { sound, note };
     });
     
     const startTime = Tone.now() + 0.1;
     
-    synthConfigs.forEach(({ instrument, note }) => {
-      this.triggerInstrument(instrument, note, startTime);
+    synthConfigs.forEach(({ sound, note }) => {
+      this.triggerSound(sound, note, startTime);
     });
   }
 
-  async startInstrument(instrumentId: string, note: string = "C4"): Promise<void> {
+  async playMultipleWithVolume(sounds: Array<SoundConfig & { volume: number }>): Promise<void> {
+    await Tone.start();
+    
+    // Create a set of incoming sound IDs
+    const incomingSoundIds = new Set(sounds.map(s => s.soundId));
+    
+    // Stop sounds that are no longer needed
+    const soundsToStop: string[] = [];
+    for (const soundId of this.soundMap.keys()) {
+        if (!incomingSoundIds.has(soundId)) {
+            soundsToStop.push(soundId);
+        }
+    }
+    soundsToStop.forEach(soundId => this.stopSound(soundId));
+    
+    // Start new sounds or update existing ones
+    for (const { soundId, note, volume } of sounds) {
+        if (this.soundMap.has(soundId)) {
+            // Sound is already playing, just update volume
+            const sound = this.soundMap.get(soundId)!;
+            this.setSoundGain(sound, volume);
+        } else {
+            // New sound, start it
+            const sound = this.createSound(soundId);
+            this.soundMap.set(soundId, sound);
+            this.activeSounds.push(sound);
+            
+            // Set initial volume (no ramp)
+            this.setSoundGain(sound, volume, 0);
+            
+            // Start playing
+            const startTime = Tone.now() + 0.1;
+            this.triggerSound(sound, note, startTime);
+        }
+    }
+  }
+
+  private setSoundGain(sound: InstrumentGroup, volumeMultiplier: number, rampTime: number = 0.1): void {
+      const sounds = Array.isArray(sound) ? sound : [sound];
+      
+      sounds.forEach((inst) => {
+          // All Tone.js audio sources have a volume property
+          if ('volume' in inst) {
+              // Convert 0-1 multiplier to decibels
+              // 0 = -Infinity dB (silent)
+              // 1 = 0 dB (full volume)
+              const volumeDb = volumeMultiplier <= 0 ? -Infinity : 20 * Math.log10(volumeMultiplier);
+              
+              if (rampTime > 0) {
+                  (inst.volume as any).rampTo(volumeDb, rampTime);
+              } else {
+                  // Immediate volume change (for initial start)
+                  (inst.volume as any).value = volumeDb;
+              }
+          }
+      });
+  }
+
+  async startSound(soundId: string, note: string = "C4"): Promise<void> {
     // If already playing, don't start again
-    if (this.instrumentMap.has(instrumentId)) {
+    if (this.soundMap.has(soundId)) {
       return;
     }
 
     await Tone.start();
-    const instrument = this.createInstrument(instrumentId);
-    this.instrumentMap.set(instrumentId, instrument);
-    this.activeInstruments.push(instrument);
-    this.triggerInstrument(instrument, note);
+    const sound = this.createSound(soundId);
+    this.soundMap.set(soundId, sound);
+    this.activeSounds.push(sound);
+    this.triggerSound(sound, note);
   }
 
-  stopInstrument(instrumentId: string): void {
-    const instrument = this.instrumentMap.get(instrumentId);
-    if (instrument) {
-      this.destroyInstrument(instrument);
-      this.instrumentMap.delete(instrumentId);
-
-      // Remove from active instruments
-      const index = this.activeInstruments.indexOf(instrument);
-      if (index > -1) {
-        this.activeInstruments.splice(index, 1);
+  stopSound(soundId: string): void {
+      const sound = this.soundMap.get(soundId);
+      if (sound) {
+          // Fade out before stopping
+          this.setSoundGain(sound, 0, 0.1);
+          
+          setTimeout(() => {
+              this.destroySound(sound);
+              this.soundMap.delete(soundId);
+              
+              // Remove from activeSounds array
+              const index = this.activeSounds.indexOf(sound);
+              if (index > -1) {
+                  this.activeSounds.splice(index, 1);
+              }
+          }, 150);
       }
-    }
   }
 
-  isInstrumentPlaying(instrumentId: string): boolean {
-    return this.instrumentMap.has(instrumentId);
+  isSoundPlaying(soundId: string): boolean {
+    return this.soundMap.has(soundId);
   }
 
   stopAll(): void {
-    // Stop all tracked instruments
-    this.activeInstruments.forEach(instrument => {
-      this.destroyInstrument(instrument);
+    // Stop all tracked sounds
+    this.activeSounds.forEach(sound => {
+      this.destroySound(sound);
     });
-    this.activeInstruments = [];
-    this.instrumentMap.clear();
+    this.activeSounds = [];
+    this.soundMap.clear();
 
     // NUCLEAR OPTION: Stop Transport and silence everything
     Tone.getTransport().stop();
@@ -107,8 +170,8 @@ export class SoundPlayer {
     }, 150);
   }
 
-  private createInstrument(soundType: string): InstrumentGroup {
-    const definition = getInstrumentDefinition(soundType);
+  private createSound(soundId: string): InstrumentGroup {
+    const definition = getSoundDefinition(soundId);
     if (definition) {
       return definition.create();
     }
@@ -116,50 +179,50 @@ export class SoundPlayer {
     return new Tone.Synth().toDestination();
   }
 
-  private triggerInstrument(instrument: InstrumentGroup, note: string, startTime?: number): void {
-    const instruments = Array.isArray(instrument) ? instrument : [instrument];
+  private triggerSound(soundId: InstrumentGroup, note: string, startTime?: number): void {
+    const sounds = Array.isArray(soundId) ? soundId : [soundId];
     const time = startTime || Tone.now();
 
-    instruments.forEach((inst) => {
-      if (inst instanceof Tone.Loop || inst instanceof Tone.Pattern) {
+    sounds.forEach((sound) => {
+      if (sound instanceof Tone.Loop || sound instanceof Tone.Pattern) {
         // Patterns and Loops need Transport to be running
         Tone.getTransport().start();
-      } else if (inst instanceof Tone.Player) {
-        inst.autostart = true;
-      } else if (inst instanceof Tone.Noise) {
+      } else if (sound instanceof Tone.Player) {
+        sound.autostart = true;
+      } else if (sound instanceof Tone.Noise) {
         // Noise sources just need to be started
-        inst.start();
-      } else if (this.isSynthInstrument(inst)) {
+        sound.start();
+      } else if (this.isSynthInstrument(sound)) {
         // For synths, trigger a note (generative synths trigger themselves via onsilence)
-        inst.triggerAttackRelease(note, '8n', time);
+        sound.triggerAttackRelease(note, '8n', time);
       }
     });
   }
 
-  private destroyInstrument(instrument: InstrumentGroup): void {
-    const instruments = Array.isArray(instrument) ? instrument : [instrument];
+  private destroySound(soundId: InstrumentGroup): void {
+    const sounds = Array.isArray(soundId) ? soundId : [soundId];
 
-    instruments.forEach((inst) => {
+    sounds.forEach((sound) => {
       try {
         // Handle different instrument types
-        if (inst instanceof Tone.Loop || inst instanceof Tone.Pattern) {
-          inst.stop();
-        } else if (inst instanceof Tone.Player) {
-          inst.stop();
-        } else if (inst instanceof Tone.Noise) {
-          inst.stop();
-        } else if (this.isSynthInstrument(inst)) {
+        if (sound instanceof Tone.Loop || sound instanceof Tone.Pattern) {
+          sound.stop();
+        } else if (sound instanceof Tone.Player) {
+          sound.stop();
+        } else if (sound instanceof Tone.Noise) {
+          sound.stop();
+        } else if (this.isSynthInstrument(sound)) {
           // For synths, trigger release and clear onsilence to break generative chains
-          inst.triggerRelease();
-          if ('onsilence' in inst) {
-            inst.onsilence = () => {}; // Break the generative chain
+          sound.triggerRelease();
+          if ('onsilence' in sound) {
+            sound.onsilence = () => {}; // Break the generative chain
           }
         }
 
-        // Dispose the instrument to free resources
-        inst.dispose();
+        // Dispose the sounds to free resources
+        sound.dispose();
       } catch (e) {
-        console.warn('Error disposing instrument:', e);
+        console.warn('Error disposing sound:', e);
       }
     });
   }

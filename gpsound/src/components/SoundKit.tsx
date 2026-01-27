@@ -1,21 +1,18 @@
-import SoundPlayer from './SoundPlayer';
-import { INSTRUMENT_DEFINITIONS } from './instrumentConfig';
+// import SoundPlayer from './SoundPlayer';
+import { SOUND_DEFINITIONS } from './instrumentConfig';
 
 interface SoundKitProps {
   show: boolean;
   shapeId: number | null;
   position: { x: number; y: number };
-  onSoundSelect: (soundType: string) => void;
+  onSoundSelect: (soundId: string) => void;
   onClose: () => void;
-  selectedSoundType?: string | null;
+  selectedsoundId?: string | null;
 }
 
-const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedSoundType }: SoundKitProps) => {
-  const handleSoundSelect = (soundType: string, note: string) => {
-    const soundPlayer = SoundPlayer.getInstance();
-    // resort instead to sound bank for trying instruments
-    // soundPlayer.playSingle(soundType, note);
-    onSoundSelect(soundType);
+const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedsoundId }: SoundKitProps) => {
+  const handleSoundSelect = (soundId: string) => {
+    onSoundSelect(soundId);
     onClose();
   };
 
@@ -52,10 +49,10 @@ const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedSou
         overflowY: 'auto',
         overflowX: 'hidden'
       }}>
-        {INSTRUMENT_DEFINITIONS.map((sound) => (
+        {SOUND_DEFINITIONS.map((sound) => (
           <button
             key={sound.id}
-            onClick={() => handleSoundSelect(sound.id, sound.defaultNote)}
+            onClick={() => handleSoundSelect(sound.id)}
             style={{
               width: '100%',
               padding: '10px 12px',
@@ -79,7 +76,7 @@ const SoundKit = ({ show, shapeId, position, onSoundSelect, onClose, selectedSou
             }}
           >
             {sound.name}
-            {selectedSoundType === sound.id && (
+            {selectedsoundId === sound.id && (
               <span style={{
                 position: 'absolute',
                 right: '12px',

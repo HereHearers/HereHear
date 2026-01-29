@@ -4,7 +4,7 @@ import 'leaflet-draw';
 import Flatten from 'flatten-js';
 import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
-import { INSTRUMENT_DEFINITIONS } from './instrumentConfig';
+import { SOUND_DEFINITIONS } from './instrumentConfig';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
 import type { User, SyncedShape, TransportState } from '../automergeTypes';
 import type { LocationMode } from '../useGeolocation';
@@ -27,7 +27,7 @@ interface SoundDropdownState {
     show: boolean;
     position: { x: number; y: number };
     shapeId: number | null;
-    soundType: string | null;
+    soundId: string | null;
 }
 
 interface ConvertedCoords {
@@ -40,8 +40,8 @@ interface DrawMapZonesProps {
     currentUserId: string;
     updateUserPosition: (lat: number, lng: number) => void;
     syncedShapes: SyncedShape[];
-    addShape: (type: string, coordinates: any, soundType?: string | null) => string;
-    updateShapeSound: (shapeId: string, soundType: string | null) => void;
+    addShape: (type: string, coordinates: any, soundId?: string | null) => string;
+    updateShapeSound: (shapeId: string, soundId: string | null) => void;
     updateShapeCoordinates: (shapeId: string, coordinates: any) => void;
     deleteShape: (shapeId: string) => void;
     clearAllShapes: () => void;
@@ -71,18 +71,17 @@ const DrawMapZones = ({
     const [mapLoc, ] = useState<L.LatLngTuple>([42.308606, -83.747036]);
     const drawnItemsRef = useRef<L.FeatureGroup | null>(null);
     const [drawnShapes, setDrawnShapes] = useState<DrawnShape[]>([]);
-    const [drawnMarkers, setDrawnMarkers] = useState<Flatten.Point[]>([]);
     const shapeMetadataRef = useRef(new Map<DrawnShape, DrawnLayer>());
     const markerMetadataRef = useRef(new Map<Flatten.Point, DrawnLayer>());
     const [soundDropdown, setSoundDropdown] = useState<SoundDropdownState>({
         show: false,
         position: { x: 0, y: 0 },
         shapeId: null,
-        soundType: null
+        soundId: null
     });
-    const [showDebugInstruments, setShowDebugInstruments] = useState(false);
+    const [showDebugSounds, setShowDebugSounds] = useState(false);
     const [debugMode, setDebugMode] = useState(false);
-    const [playingInstruments, setPlayingInstruments] = useState<Set<string>>(new Set());
+    const [playingSounds, setplayingSounds] = useState<Set<string>>(new Set());
     let {point} = Flatten;
     
     // Track user markers (userId -> L.Marker)
@@ -101,6 +100,10 @@ const DrawMapZones = ({
     // Track shapes created locally that are pending Automerge confirmation
     const pendingLocalShapesRef = useRef<Set<string>>(new Set());
     
+    // Track last location update time
+    const lastCalculationRef = useRef<number>(0);
+    const THROTTLE_MS = 500; // Calculate at most once per 0.5s
+
     // Refs for Automerge functions to avoid stale closures in event handlers
     const addShapeRef = useRef(addShape);
     const deleteShapeRef = useRef(deleteShape);
@@ -122,19 +125,10 @@ const DrawMapZones = ({
     // Track if zone management menu is visible
     const [showZoneManagement, setShowZoneManagement] = useState(false);
     
-    // handling state updates for shapes and markers
+    // handling state updates for shapes
     const addUpdateShapeMeta = (k: DrawnShape, v: DrawnLayer) => {
         shapeMetadataRef.current.set(k, v);
     }
-    const addUpdateMarkerMeta = (k: Flatten.Point, v: DrawnLayer) => {
-        markerMetadataRef.current.set(k, v);
-    }
-    const removeMarkerFromState = (markerToRemove: Flatten.Point) => {
-        // Remove from metadata
-        markerMetadataRef.current.delete(markerToRemove);
-        // Remove from state
-        setDrawnMarkers(prev => prev.filter(marker => marker !== markerToRemove));
-    };
     const removeShapeFromState = (shapeToRemove: DrawnShape) => {
         // Remove from metadata
         shapeMetadataRef.current.delete(shapeToRemove);
@@ -142,31 +136,6 @@ const DrawMapZones = ({
         setDrawnShapes(prev => prev.filter(shape => shape !== shapeToRemove));
     };
 
-
-    // Helper function to find current sound type for a shape
-    const getCurrentsoundType = (shapeId: number) => {
-        for (const [_, metadata] of shapeMetadataRef.current.entries()) {
-            if (metadata.id === shapeId) {
-                return metadata.soundType;
-            }
-        }
-        // If not found in shapes, check marker metadata
-        for (const [_, metadata] of markerMetadataRef.current.entries()) {
-            if (metadata.id === shapeId) {
-                return metadata.soundType;
-            }
-        }
-        return null;
-    };
-
-    const getMarkerByID = (markerId: number) => {
-        for (const [marker, metadata] of markerMetadataRef.current.entries()) {
-            if (metadata.id === markerId) {
-                return marker;
-            }
-        }
-        return null;
-    }
     const getShapeByID = (shapeId: number) => {
         for (const [marker, metadata] of shapeMetadataRef.current.entries()) {
             if (metadata.id === shapeId) {
@@ -175,7 +144,6 @@ const DrawMapZones = ({
         }
         return null;
     }
-
 
     useEffect(() => {
         if (!mapRef.current || mapInstanceRef.current) return;
@@ -241,7 +209,7 @@ const DrawMapZones = ({
                     id: L.stamp(layer), // Local ID for internal use
                     type: type,
                     coordinates: shapeCoor,
-                    soundType: null
+                    soundId: null
             }
 
             // Add to local state
@@ -258,13 +226,13 @@ const DrawMapZones = ({
                     
                     // Get sound type from synced shapes (use ref to avoid stale closure)
                     const syncedShape = syncedShapesRef.current.find(s => s.id === syncId);
-                    const currentsoundType = syncedShape?.soundType || null;
+                    const currentsoundId = syncedShape?.soundId || null;
 
                     setSoundDropdown({
                         show: true,
                         position: { x: containerPoint.x, y: containerPoint.y },
                         shapeId: syncId as any, // Use sync ID for sound selection
-                        soundType: currentsoundType
+                        soundId: currentsoundId
                     });
                 });
                 console.log('Shape created and synced:', syncId, type);
@@ -530,7 +498,7 @@ const DrawMapZones = ({
                         id: L.stamp(layer),
                         type: syncedShape.type,
                         coordinates: coords,
-                        soundType: syncedShape.soundType
+                        soundId: syncedShape.soundId
                     };
                     addUpdateShapeMeta(flatShape, shapeInfo);
                     setDrawnShapes(prev => [...prev, flatShape]);
@@ -544,13 +512,13 @@ const DrawMapZones = ({
                     const containerPoint = map.mouseEventToContainerPoint(e.originalEvent);
                     // Get current sound from syncedShapesRef to avoid stale closure
                     const currentShape = syncedShapesRef.current.find(s => s.id === shapeIdForHandler);
-                    const currentSound = currentShape?.soundType || null;
+                    const currentSound = currentShape?.soundId || null;
                     
                     setSoundDropdown({
                         show: true,
                         position: { x: containerPoint.x, y: containerPoint.y },
                         shapeId: shapeIdForHandler as any,
-                        soundType: currentSound
+                        soundId: currentSound
                     });
                 });
                 
@@ -642,7 +610,16 @@ const DrawMapZones = ({
     })();
 
     // Automatically update audio based on user position
+    // TODO: incorporate nearestShapes to ramp volume as approaching nearest zone
     useEffect(() => {
+        // throttle location update calculation
+        const now = Date.now();
+        if (now - lastCalculationRef.current < THROTTLE_MS) {
+            console.log("throttled...")
+            return; // Skip this update
+        }
+        lastCalculationRef.current = now;
+
         if (!isAudioEnabled) return;
         if (drawnShapes.length === 0) return;
         if (!currentUserPositionKey) return;
@@ -658,56 +635,98 @@ const DrawMapZones = ({
         
         const collidedShapes: any[] = planarSet.hit(userPoint);
 
-        // Get sounds from collided shapes
-        // Look up sound types from synced shapes (Automerge) for real-time updates
-        const sounds: SoundConfig[] = [];
+        // Check nearby shapes (threshold in meters)
+        const DISTANCE_THRESHOLD = 300; // meters
+        const nearby = nearestShapes({ threshold: DISTANCE_THRESHOLD });
+
+        // Collect sounds with volume from collided shapes (full volume) and nearby shapes (modulated volume)
+        const sounds: Array<SoundConfig & { volume: number }> = [];
+
+        // Process collided shapes - full volume (100%)
         collidedShapes.forEach(shape => {
             const metadata = shapeMetadataRef.current.get(shape);
             if (metadata) {
-                // Find the corresponding synced shape to get the current sound type
-                // The local metadata might be stale; sync has the truth
-                const leafletId = metadata.id;
-                
-                // Find the sync ID for this leaflet layer
                 let syncId: string | undefined;
                 for (const [id, layer] of syncIdToLayerRef.current.entries()) {
-                    if (L.stamp(layer) === leafletId) {
+                    if (L.stamp(layer) === metadata.id) {
                         syncId = id;
                         break;
                     }
                 }
                 
-                // Get sound type from synced shape
                 const syncedShape = syncedShapes.find(s => s.id === syncId);
-                const soundType = syncedShape?.soundType;
+                const soundId = syncedShape?.soundId;
                 
-                if (soundType) {
+                if (soundId) {
                     sounds.push({
-                        soundType: soundType,
-                        note: 'C4'
+                        soundId: soundId,
+                        note: 'C4',
+                        volume: 1.0  // 100% volume for collided shapes
                     });
                 }
             }
         });
 
-        // Create a unique key for the current sound set
-        const soundsKey = sounds.map(s => s.soundType).sort().join(',');
+        // Process nearby shapes - modulated volume based on distance
+        if (nearby && nearby.length > 0) {
+            nearby.forEach(({ shape, dist }) => {
+                // Skip if already colliding (already processed above)
+                if (collidedShapes.includes(shape)) {
+                    return;
+                }
+
+                const metadata = shapeMetadataRef.current.get(shape);
+                if (metadata) {
+                    let syncId: string | undefined;
+                    for (const [id, layer] of syncIdToLayerRef.current.entries()) {
+                        if (L.stamp(layer) === metadata.id) {
+                            syncId = id;
+                            break;
+                        }
+                    }
+                    
+                    const syncedShape = syncedShapes.find(s => s.id === syncId);
+                    const soundId = syncedShape?.soundId;
+                    
+                    if (soundId) {
+                        // Calculate volume: 0% at threshold, 100% at distance 0
+                        // Linear interpolation: volume = 1 - (distance / threshold)
+                        const volume = Math.max(0, 1 - (dist / DISTANCE_THRESHOLD));
+                        
+                        sounds.push({
+                            soundId: soundId,
+                            note: 'C4',
+                            volume: volume
+                        });
+                    }
+                }
+            });
+        }
+
+        // Create a unique key based on sound IDs only (not volumes)
+        const soundsKey = sounds
+            .map(s => s.soundId)
+            .sort()
+            .join(',');
         
-        // Only update audio if the sounds have changed
+        // Check if the SET of sounds changed
         if (soundsKey !== currentSoundsRef.current) {
             currentSoundsRef.current = soundsKey;
             
             const soundPlayer = SoundPlayer.getInstance();
             if (sounds.length > 0) {
-                console.log('Starting sounds:', soundsKey);
-                soundPlayer.playMultiple(sounds);
+                console.log('Updating sounds with volumes:', sounds);
+                soundPlayer.playMultipleWithVolume(sounds);
             } else {
                 console.log('Stopping all sounds');
                 soundPlayer.stopAll();
             }
+        } else if (sounds.length > 0) {
+            // Sounds haven't changed, but volumes might have - update them
+            const soundPlayer = SoundPlayer.getInstance();
+            soundPlayer.playMultipleWithVolume(sounds);
         }
 
-    // Also include syncedShapes to react to sound changes from other users
     }, [isAudioEnabled, currentUserPositionKey, drawnShapes, mapLoc, point, syncedShapes]);
 
     const getCoordinates = function (layer: any, type: any) {
@@ -739,7 +758,6 @@ const DrawMapZones = ({
         if (drawnItemsRef.current) {
             drawnItemsRef.current.clearLayers();
             setDrawnShapes([]);
-            setDrawnMarkers([]);
             shapeMetadataRef.current.clear();
             markerMetadataRef.current.clear();
             syncIdToLayerRef.current.clear();
@@ -771,7 +789,7 @@ const DrawMapZones = ({
             id: shape.id,
             type: shape.type,
             coordinates: shape.coordinates,
-            soundType: shape.soundType
+            soundId: shape.soundId
         }));
         
         const exportData = {
@@ -788,58 +806,6 @@ const DrawMapZones = ({
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
-
-
-    // Helper to draw shapes on the map from imported data
-    const drawShapesOnMap = (shapes: DrawnLayer[]): DrawnLayer[] => {
-        if (!drawnItemsRef.current) return [];
-        // drawnItemsRef.current.clearLayers();
-        clearArrangement();
-        const updatedShapes: DrawnLayer[] = []
-        shapes.forEach(shape => {
-            let layer: L.Layer | null = null;
-            switch (shape.type) {
-                case 'marker':
-                    layer = L.marker(shape.coordinates);
-                    break;
-                case 'circle':
-                    layer = L.circle(shape.coordinates.center, { radius: shape.coordinates.radius });
-                    break;
-                case 'rectangle':
-                    layer = L.rectangle(shape.coordinates);
-                    break;
-                case 'polygon':
-                    layer = L.polygon(shape.coordinates);
-                    break;
-                case 'circlemarker':
-                    layer = L.circleMarker(shape.coordinates.center, { radius: shape.coordinates.radius });
-                    break;
-                default:
-                    break;
-            }
-            if (layer && drawnItemsRef.current) {
-                shape.id = L.stamp(layer)
-                drawnItemsRef.current.addLayer(layer);
-                // Add shape metadata
-
-                // Add click handler for sound dropdown
-                layer.on('click', function (e: any) {
-                    if (!mapInstanceRef.current) return;
-                    const containerPoint = mapInstanceRef.current.mouseEventToContainerPoint(e.originalEvent);
-                    const currentsoundType = getCurrentsoundType(shape.id);
-
-                    setSoundDropdown({
-                        show: true,
-                        position: { x: containerPoint.x, y: containerPoint.y },
-                        shapeId: shape.id,
-                        soundType: currentsoundType
-                    });
-                });
-            updatedShapes.push(shape)
-            }
-        });
-        return updatedShapes;
     };
 
     // Get flatten object from leaflet shape
@@ -1014,7 +980,7 @@ const DrawMapZones = ({
                         if (shape.type === 'marker') return;
                         
                         // Add to Automerge with the sound type
-                        addShapeRef.current(shape.type, shape.coordinates, shape.soundType);
+                        addShapeRef.current(shape.type, shape.coordinates, shape.soundId);
                     });
                     
                     // Restore map view if present
@@ -1053,18 +1019,18 @@ const DrawMapZones = ({
         event.target.value = '';
     };
 
-    // update soundType assigned to shape
-    const handleSoundSelect = (soundType: string) => {
+    // update soundId assigned to shape
+    const handleSoundSelect = (soundId: string) => {
         const syncId = soundDropdown.shapeId as unknown as string;
         
         // Sync to Automerge
         if (syncId) {
-            updateShapeSound(syncId, soundType);
-            console.log(`Synced sound "${soundType}" to shape ${syncId}`);
+            updateShapeSound(syncId, soundId);
+            console.log(`Synced sound "${soundId}" to shape ${syncId}`);
         }
 
         // Update the dropdown state with the new sound type
-        setSoundDropdown(prev => ({ ...prev, soundType }));
+        setSoundDropdown(prev => ({ ...prev, soundId }));
     };
 
     const closeSoundDropdown = () => {
@@ -1072,7 +1038,7 @@ const DrawMapZones = ({
             show: false,
             position: { x: 0, y: 0 },
             shapeId: null,
-            soundType: null
+            soundId: null
         });
     };
 
@@ -1089,31 +1055,31 @@ const DrawMapZones = ({
 
     const handleSoundboxing = () => {
         // Toggle the debug instrument selector
-        setShowDebugInstruments(!showDebugInstruments);
+        setShowDebugSounds(!showDebugSounds);
     }
 
-    const handleToggleTryInstrument = async (instrumentId: string) => {
+    const handleToggleTrySound = async (soundId: string) => {
         const soundPlayer = SoundPlayer.getInstance();
 
-        if (playingInstruments.has(instrumentId)) {
+        if (playingSounds.has(soundId)) {
             // Stop the instrument
-            console.log(`Stopping debug instrument: ${instrumentId}`);
-            soundPlayer.stopInstrument(instrumentId);
-            setPlayingInstruments(prev => {
+            console.log(`Stopping debug instrument: ${soundId}`);
+            soundPlayer.stopSound(soundId);
+            setplayingSounds(prev => {
                 const newSet = new Set(prev);
-                newSet.delete(instrumentId);
+                newSet.delete(soundId);
                 return newSet;
             });
         } else {
             // Start the instrument
-            console.log(`Starting debug instrument: ${instrumentId}`);
-            await soundPlayer.startInstrument(instrumentId, "C4");
-            setPlayingInstruments(prev => new Set(prev).add(instrumentId));
+            console.log(`Starting debug instrument: ${soundId}`);
+            await soundPlayer.startSound(soundId, "C4");
+            setplayingSounds(prev => new Set(prev).add(soundId));
         }
     }
 
     const handleCloseDebugSelector = () => {
-        setShowDebugInstruments(false);
+        setShowDebugSounds(false);
     }
 
     const handleCloseTransportControls = () => {
@@ -1356,7 +1322,7 @@ const DrawMapZones = ({
             )}
 
             {/* Debug Instrument Selector */}
-            {showDebugInstruments && (
+            {showDebugSounds && (
                 <>
                     {/* Overlay to close on click outside */}
                     <div
@@ -1388,13 +1354,13 @@ const DrawMapZones = ({
                         }}
                     >
                         <div style={{ padding: '8px', borderBottom: '1px solid #e5e5e5', fontWeight: 'bold', color: '#111' }}>
-                            Select instruments
+                            Select sounds
                         </div>
-                        {INSTRUMENT_DEFINITIONS.map((instrument) => {
-                            const isPlaying = playingInstruments.has(instrument.id);
+                        {SOUND_DEFINITIONS.map((sound) => {
+                            const isPlaying = playingSounds.has(sound.id);
                             return (
                                 <div
-                                    key={instrument.id}
+                                    key={sound.id}
                                     style={{
                                         padding: '8px 12px',
                                         borderBottom: '1px solid #f0f0f0',
@@ -1405,11 +1371,11 @@ const DrawMapZones = ({
                                     }}
                                 >
                                     <div style={{ flex: 1 }}>
-                                        <div style={{ fontWeight: '500', color: '#111' }}>{instrument.name}</div>
-                                        <div style={{ fontSize: '12px', color: '#1f34b8ff' }}>ID: {instrument.id}</div>
+                                        <div style={{ fontWeight: '500', color: '#111' }}>{sound.name}</div>
+                                        <div style={{ fontSize: '12px', color: '#1f34b8ff' }}>ID: {sound.id}</div>
                                     </div>
                                     <button
-                                        onClick={() => handleToggleTryInstrument(instrument.id)}
+                                        onClick={() => handleToggleTrySound(sound.id)}
                                         style={{
                                             padding: '6px 12px',
                                             border: 'none',
@@ -1627,7 +1593,7 @@ const DrawMapZones = ({
                 position={soundDropdown.position}
                 onSoundSelect={handleSoundSelect}
                 onClose={closeSoundDropdown}
-                selectedSoundType={soundDropdown.soundType}
+                selectedsoundId={soundDropdown.soundId}
             />
         </div>
     );

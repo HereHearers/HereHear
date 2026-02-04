@@ -1,0 +1,47 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches:
+      - '*'
+
+# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: gpsound
+        run: npm install
+
+      - name: Extract branch name
+        id: branch
+        run: echo "name=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+
+      - name: Build
+        working-directory: gpsound
+        env:
+          BASE_PATH: /build/${{ steps.branch.outputs.name }}/
+        run: npm run build
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./gpsound/dist
+          destination_dir: build/${{ steps.branch.outputs.name }}
+          keep_files: true

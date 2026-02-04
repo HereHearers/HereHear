@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { AutomergeUrl } from "@automerge/automerge-repo";
 import { useDocument } from "@automerge/automerge-repo-react-hooks";
 import { repo, getUserId } from "./automergeSetup";
-import type { GPSoundDoc, SyncedShape } from "./automergeTypes";
+import type { HereHearDoc, SyncedShape } from "./automergeTypes";
 
 /**
  * Custom hook that manages the Automerge document lifecycle
@@ -34,7 +34,7 @@ export const useAutomergeDoc = () => {
       } else {
         // Create new document
         console.log("Creating new document...");
-        const handle = repo.create<GPSoundDoc>();
+        const handle = repo.create<HereHearDoc>();
         
         // Initialize the document with an empty users object
         handle.change((doc) => {
@@ -60,7 +60,7 @@ export const useAutomergeDoc = () => {
   }, []);
 
   // Use Automerge's useDocument hook to get live updates
-  const [doc, changeDoc] = useDocument<GPSoundDoc>(docUrl);
+  const [doc, changeDoc] = useDocument<HereHearDoc>(docUrl);
 
   // Manage user presence: add this user and send heartbeats
   useEffect(() => {

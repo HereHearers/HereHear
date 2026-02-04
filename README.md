@@ -1,2 +1,2 @@
-# GPSound
-gpsound install project
+# HereHear
+HereHear sound install

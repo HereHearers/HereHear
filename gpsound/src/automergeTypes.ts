@@ -37,7 +37,7 @@ export interface TransportState {
 }
 
 // The root structure of our shared Automerge document
-export interface GPSoundDoc {
+export interface HereHearDoc {
   // Map of user IDs to User objects
   // We use a map so each user can update their own entry independently
   users?: { [userId: string]: User };

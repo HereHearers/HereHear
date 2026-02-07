@@ -29,23 +29,14 @@ export class SoundPlayer {
 
     if (!this.audioUnlocked) {
       const rawCtx = Tone.getContext().rawContext as AudioContext;
-
-      // On iOS, Tone.start() can resolve while the context is still suspended.
-      // Explicitly resume the raw context as a fallback.
-      if (rawCtx.state === 'suspended') {
-        await rawCtx.resume();
+      if (rawCtx.state === 'running') {
+        const buffer = rawCtx.createBuffer(1, 1, rawCtx.sampleRate);
+        const source = rawCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(rawCtx.destination);
+        source.start(0);
+        this.audioUnlocked = true;
       }
-
-      // Play a silent buffer to fully unlock the iOS audio path.
-      // Don't gate on state — the play itself can trigger the unlock.
-      const buffer = rawCtx.createBuffer(1, 1, rawCtx.sampleRate);
-      const source = rawCtx.createBufferSource();
-      source.buffer = buffer;
-      source.connect(rawCtx.destination);
-      source.start(0);
-
-      this.audioUnlocked = true;
-      console.log(`AudioContext unlocked: state=${rawCtx.state}, sampleRate=${rawCtx.sampleRate}`);
     }
   }
 

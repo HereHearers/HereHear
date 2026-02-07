@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import * as Tone from 'tone';
 import L from 'leaflet';
 import 'leaflet-draw';
 import Flatten from 'flatten-js';
@@ -1059,7 +1060,10 @@ const DrawMapZones = ({
         });
     };
 
-    const handleUpdateMarkerAudio = () => {
+    const handleUpdateMarkerAudio = async () => {
+        // Must call Tone.start() directly in a user gesture handler,
+        // otherwise mobile browsers (Safari, Firefox) silently block audio.
+        await Tone.start();
         setIsAudioEnabled(true);
     }
 

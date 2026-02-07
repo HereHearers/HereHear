@@ -10,6 +10,7 @@ export class SoundPlayer {
   private static instance: SoundPlayer;
   private activeSounds: InstrumentGroup[] = []; // All currently playing instruments - used by stopAll()
   private soundMap: Map<string, InstrumentGroup> = new Map(); // Tracks sounds by ID - used for startSound/stopSound
+  private audioUnlocked: boolean = false;
 
   static getInstance(): SoundPlayer {
     if (!SoundPlayer.instance) {
@@ -18,8 +19,29 @@ export class SoundPlayer {
     return SoundPlayer.instance;
   }
 
-  async playSingle(soundId: string, note: string): Promise<void> {
+  /**
+   * Resume the Tone.js AudioContext and play a silent buffer to unlock
+   * audio on iOS, which requires an actual buffer to be played through
+   * the raw AudioContext during a user gesture.
+   */
+  async ensureAudioContext(): Promise<void> {
     await Tone.start();
+
+    if (!this.audioUnlocked) {
+      const rawCtx = Tone.getContext().rawContext as AudioContext;
+      if (rawCtx.state === 'running') {
+        const buffer = rawCtx.createBuffer(1, 1, rawCtx.sampleRate);
+        const source = rawCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(rawCtx.destination);
+        source.start(0);
+        this.audioUnlocked = true;
+      }
+    }
+  }
+
+  async playSingle(soundId: string, note: string): Promise<void> {
+    await this.ensureAudioContext();
     const timeLimit = 8000;
     // const timeLimit = 1e+20;
 
@@ -38,7 +60,7 @@ export class SoundPlayer {
   }
 
   async playMultiple(sounds: SoundConfig[]): Promise<void> {
-    await Tone.start();
+    await this.ensureAudioContext();
     
     this.stopAll();
     
@@ -56,7 +78,7 @@ export class SoundPlayer {
   }
 
   async playMultipleWithVolume(sounds: Array<SoundConfig & { volume: number }>): Promise<void> {
-    await Tone.start();
+    await this.ensureAudioContext();
     
     // Create a set of incoming sound IDs
     const incomingSoundIds = new Set(sounds.map(s => s.soundId));
@@ -119,7 +141,7 @@ export class SoundPlayer {
       return;
     }
 
-    await Tone.start();
+    await this.ensureAudioContext();
     const sound = this.createSound(soundId);
     this.soundMap.set(soundId, sound);
     this.activeSounds.push(sound);

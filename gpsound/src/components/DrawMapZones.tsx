@@ -610,7 +610,6 @@ const DrawMapZones = ({
     })();
 
     // Automatically update audio based on user position
-    // TODO: incorporate nearestShapes to ramp volume as approaching nearest zone
     useEffect(() => {
         // throttle location update calculation
         const now = Date.now();
@@ -620,7 +619,15 @@ const DrawMapZones = ({
         }
         lastCalculationRef.current = now;
 
-        if (!isAudioEnabled) return;
+        if (!isAudioEnabled || !transportState?.isPlaying) {
+            // Stop any playing sounds when audio is disabled or transport is paused
+            if (currentSoundsRef.current !== '') {
+                const soundPlayer = SoundPlayer.getInstance();
+                soundPlayer.stopAll();
+                currentSoundsRef.current = '';
+            }
+            return;
+        }
         if (drawnShapes.length === 0) return;
         if (!currentUserPositionKey) return;
 
@@ -727,7 +734,7 @@ const DrawMapZones = ({
             soundPlayer.playMultipleWithVolume(sounds);
         }
 
-    }, [isAudioEnabled, currentUserPositionKey, drawnShapes, mapLoc, point, syncedShapes]);
+    }, [isAudioEnabled, transportState?.isPlaying, currentUserPositionKey, drawnShapes, mapLoc, point, syncedShapes]);
 
     const getCoordinates = function (layer: any, type: any) {
         switch (type) {

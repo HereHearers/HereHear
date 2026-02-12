@@ -150,22 +150,13 @@ export class SoundPlayer {
   }
 
   stopAll(): void {
-    // Stop all tracked sounds
+    // Stop and dispose all tracked sounds
     this.activeSounds.forEach(sound => {
       this.destroySound(sound);
     });
     this.activeSounds = [];
     this.soundMap.clear();
-
-    // NUCLEAR OPTION: Stop Transport and silence everything
-    Tone.getTransport().stop();
-    Tone.getTransport().cancel();  // Cancel all scheduled events
-
-    // Release all voices on Destination to silence any ongoing sounds
-    Tone.getDestination().volume.rampTo(-Infinity, 0.1);
-    setTimeout(() => {
-      Tone.getDestination().volume.value = 0;  // Reset volume after silence
-    }, 150);
+    // Transport lifecycle is managed by TimingSync — don't touch it here.
   }
 
   private createSound(soundId: string): InstrumentGroup {

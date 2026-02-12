@@ -83,9 +83,9 @@ export class TimingSync {
                 transport.start();
             }
         } else {
-            if (transport.state !== 'stopped') {
-                console.log('[TimingSync] Stopping Transport');
-                transport.stop();
+            if (transport.state === 'started') {
+                console.log('[TimingSync] Pausing Transport');
+                transport.pause();
             }
         }
     }
@@ -185,7 +185,7 @@ export class TimingSync {
         this.currentState.startTime = null;
 
         const transport = Tone.getTransport();
-        transport.stop();
+        transport.pause();
 
         console.log('Paused playback');
         return { ...this.currentState };

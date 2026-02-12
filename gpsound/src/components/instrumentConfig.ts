@@ -54,6 +54,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
     create: () => {
       const player = new Tone.Player("https://tonejs.github.io/audio/drum-samples/loops/blueyellow.mp3").toDestination();
       player.loop = true;
+      player.sync().start(0); // sync to transport
       return player;
     }
   },
@@ -64,6 +65,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
     create: () => {
       const player = new Tone.Player("https://tonejs.github.io/audio/drum-samples/loops/organ-echo-chords.mp3").toDestination();
       player.loop = true;
+      player.sync().start(0); // sync to transport
       return player;
     }
   },
@@ -96,8 +98,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
         fadeOut: 0.5            // Fade out over 0.5 seconds when stopped
       }).toDestination();
 
-      // Start the continuous drone
-      // noise.start();
+      noise.sync().start(0);
 
       // Create a plucky synth for the arpeggio
       // const plucky = new Tone.PluckSynth({

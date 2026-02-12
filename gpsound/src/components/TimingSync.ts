@@ -1,9 +1,10 @@
 import * as Tone from 'tone';
 
 export interface TransportSyncState {
-    startTime: number | null; // Timestamp in ms when transport started
+    startTime: number | null; // Timestamp in ms when transport started (null when paused)
     bpm: number;
     isPlaying: boolean;
+    pausedPosition: number; // Transport position in seconds when paused (0 = beginning)
 }
 
 export class TimingSync {
@@ -14,7 +15,8 @@ export class TimingSync {
     private currentState: TransportSyncState = {
         startTime: null,
         bpm: 120,
-        isPlaying: false
+        isPlaying: false,
+        pausedPosition: 0
     };
 
     private constructor() {}
@@ -145,35 +147,60 @@ export class TimingSync {
     }
 
     /**
-     * Call this when local user plays
-     * Returns the new state to share via Automerge
+     * Start playback from position 0.
+     * Returns the new state to share via Automerge.
      */
-    play(): TransportSyncState {
+    start(): TransportSyncState {
         if (!this.isInitialized) {
             console.warn('TimingSync not initialized');
             return this.currentState;
         }
 
-        // If already playing, don't restart - just return current state
+        const transport = Tone.getTransport();
+        transport.seconds = 0;
+
+        this.currentState.startTime = Date.now();
+        this.currentState.isPlaying = true;
+        this.currentState.pausedPosition = 0;
+
+        transport.start();
+
+        console.log('Started playback from 0 at:', this.currentState.startTime);
+        return { ...this.currentState };
+    }
+
+    /**
+     * Resume playback from the paused position.
+     * Returns the new state to share via Automerge.
+     */
+    resume(): TransportSyncState {
+        if (!this.isInitialized) {
+            console.warn('TimingSync not initialized');
+            return this.currentState;
+        }
+
         if (this.currentState.isPlaying) {
             console.log('Already playing');
             return { ...this.currentState };
         }
 
-        // Start playback with current timestamp
-        this.currentState.startTime = Date.now();
+        const transport = Tone.getTransport();
+        const pos = this.currentState.pausedPosition;
+
+        transport.seconds = pos;
+        // Adjust startTime so elapsed calculation picks up from pausedPosition
+        this.currentState.startTime = Date.now() - (pos * 1000);
         this.currentState.isPlaying = true;
 
-        const transport = Tone.getTransport();
         transport.start();
 
-        console.log('Started playback at:', this.currentState.startTime);
+        console.log('Resumed playback from', pos.toFixed(2), 's');
         return { ...this.currentState };
     }
 
     /**
-     * Call this when local user pauses
-     * Returns the new state to share via Automerge
+     * Pause playback, preserving current position for resume.
+     * Returns the new state to share via Automerge.
      */
     pause(): TransportSyncState {
         if (!this.isInitialized) {
@@ -181,13 +208,38 @@ export class TimingSync {
             return this.currentState;
         }
 
+        if (this.currentState.startTime) {
+            this.currentState.pausedPosition = (Date.now() - this.currentState.startTime) / 1000;
+        }
         this.currentState.isPlaying = false;
         this.currentState.startTime = null;
 
         const transport = Tone.getTransport();
         transport.pause();
 
-        console.log('Paused playback');
+        console.log('Paused at', this.currentState.pausedPosition.toFixed(2), 's');
+        return { ...this.currentState };
+    }
+
+    /**
+     * Reset position to 0 without changing play/pause state.
+     * Returns the new state to share via Automerge.
+     */
+    reset(): TransportSyncState {
+        if (!this.isInitialized) {
+            console.warn('TimingSync not initialized');
+            return this.currentState;
+        }
+
+        const transport = Tone.getTransport();
+        transport.seconds = 0;
+        this.currentState.pausedPosition = 0;
+
+        if (this.currentState.isPlaying) {
+            this.currentState.startTime = Date.now();
+        }
+
+        console.log('Reset position to 0');
         return { ...this.currentState };
     }
 

@@ -1110,17 +1110,33 @@ const DrawMapZones = ({
     const handleTransportStart = () => {
         if (!timingSyncReady) return;
         const timingSync = TimingSync.getInstance();
-        const newState = timingSync.play();
+        const newState = timingSync.start();
         updateTransportState(newState);
-        console.log('Transport started, syncing to Automerge');
+        console.log('Transport started from 0, syncing to Automerge');
     };
 
-    const handleTransportStop = () => {
+    const handleTransportResume = () => {
+        if (!timingSyncReady) return;
+        const timingSync = TimingSync.getInstance();
+        const newState = timingSync.resume();
+        updateTransportState(newState);
+        console.log('Transport resumed, syncing to Automerge');
+    };
+
+    const handleTransportPause = () => {
         if (!timingSyncReady) return;
         const timingSync = TimingSync.getInstance();
         const newState = timingSync.pause();
         updateTransportState(newState);
-        console.log('Transport stopped, syncing to Automerge');
+        console.log('Transport paused, syncing to Automerge');
+    };
+
+    const handleTransportReset = () => {
+        if (!timingSyncReady) return;
+        const timingSync = TimingSync.getInstance();
+        const newState = timingSync.reset();
+        updateTransportState(newState);
+        console.log('Transport reset to 0, syncing to Automerge');
     };
 
     const handleBPMChange = (newBPM: number) => {
@@ -1554,7 +1570,7 @@ const DrawMapZones = ({
                             </div>
                         )}
 
-                        {/* Play/Pause Button */}
+                        {/* Start Button — starts from 0 */}
                         <button
                             onClick={handleTransportStart}
                             disabled={!timingSyncReady || transportState?.isPlaying}
@@ -1572,16 +1588,37 @@ const DrawMapZones = ({
                                 opacity: (!timingSyncReady || transportState?.isPlaying) ? 0.6 : 1
                             }}
                         >
-                            ▶ Play
+                            ▶ Start
                         </button>
 
-                        {/* Stop Button */}
+                        {/* Resume Button — resumes from paused position */}
                         <button
-                            onClick={handleTransportStop}
+                            onClick={handleTransportResume}
+                            disabled={!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)}
+                            style={{
+                                width: '100%',
+                                backgroundColor: (!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)) ? '#6b7280' : '#3b82f6',
+                                color: 'white',
+                                padding: '8px 12px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontSize: '14px',
+                                cursor: (!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)) ? 'not-allowed' : 'pointer',
+                                marginBottom: '8px',
+                                fontWeight: '500',
+                                opacity: (!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)) ? 0.6 : 1
+                            }}
+                        >
+                            ▶▶ Resume
+                        </button>
+
+                        {/* Pause Button */}
+                        <button
+                            onClick={handleTransportPause}
                             disabled={!timingSyncReady || !transportState?.isPlaying}
                             style={{
                                 width: '100%',
-                                backgroundColor: (!timingSyncReady || !transportState?.isPlaying) ? '#6b7280' : '#ef4444',
+                                backgroundColor: (!timingSyncReady || !transportState?.isPlaying) ? '#6b7280' : '#f59e0b',
                                 color: 'white',
                                 padding: '8px 12px',
                                 border: 'none',
@@ -1594,6 +1631,27 @@ const DrawMapZones = ({
                             }}
                         >
                             ⏸ Pause
+                        </button>
+
+                        {/* Reset Button — resets position to 0 */}
+                        <button
+                            onClick={handleTransportReset}
+                            disabled={!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))}
+                            style={{
+                                width: '100%',
+                                backgroundColor: (!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))) ? '#6b7280' : '#ef4444',
+                                color: 'white',
+                                padding: '8px 12px',
+                                border: 'none',
+                                borderRadius: '4px',
+                                fontSize: '14px',
+                                cursor: (!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))) ? 'not-allowed' : 'pointer',
+                                marginBottom: '8px',
+                                fontWeight: '500',
+                                opacity: (!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))) ? 0.6 : 1
+                            }}
+                        >
+                            ⏹ Reset
                         </button>
 
                         {/* BPM Control */}

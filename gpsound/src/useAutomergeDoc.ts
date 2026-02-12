@@ -277,7 +277,8 @@ export const useAutomergeDoc = () => {
         d.transport = {
           startTime: null,
           bpm: 120,
-          isPlaying: false
+          isPlaying: false,
+          pausedPosition: 0
         };
       }
     });

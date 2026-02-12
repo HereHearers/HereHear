@@ -183,13 +183,10 @@ export class SoundPlayer {
 
     sounds.forEach((sound) => {
       if (sound instanceof Tone.Loop || sound instanceof Tone.Pattern) {
-        // Patterns and Loops need Transport to be running
-        Tone.getTransport().start();
-      } else if (sound instanceof Tone.Player) {
-        sound.autostart = true;
-      } else if (sound instanceof Tone.Noise) {
-        // Noise sources just need to be started
-        sound.start();
+        // Patterns and Loops are scheduled on the Transport — no manual start needed
+      } else if (sound instanceof Tone.Player || sound instanceof Tone.Noise) {
+        // Players and Noise are synced to Transport via .sync().start(0)
+        // in instrumentConfig — Transport handles their start/stop.
       } else if (this.isSynthInstrument(sound)) {
         // For synths, trigger a note (generative synths trigger themselves via onsilence)
         sound.triggerAttackRelease(note, '8n', time);

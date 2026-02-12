@@ -35,13 +35,15 @@ jobs:
       - name: Build
         working-directory: gpsound
         env:
-          BASE_PATH: /${{ github.event.repository.name }}/build/${{ steps.branch.outputs.name }}/
+          BASE_PATH: /build/${{ steps.branch.outputs.name }}/
         run: npm run build
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+          personal_token: ${{ secrets.DEPLOY_TOKEN }}
+          external_repository: HereHearers/build
+          publish_branch: main
           publish_dir: ./gpsound/dist
-          destination_dir: build/${{ steps.branch.outputs.name }}
+          destination_dir: ${{ steps.branch.outputs.name }}
           keep_files: true

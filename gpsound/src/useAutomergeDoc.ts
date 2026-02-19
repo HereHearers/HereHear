@@ -30,6 +30,7 @@ export const useAutomergeDoc = () => {
         // Format: automerge:documentId
         const url = `automerge:${docId}` as AutomergeUrl;
         console.log("Joining existing document:", docId);
+        document.title = `HereHear! (${docId.substring(0, 8)})`;
         setDocUrl(url);
       } else {
         // Create new document
@@ -50,6 +51,7 @@ export const useAutomergeDoc = () => {
         // Update the browser URL without reloading the page
         const newUrl = `${window.location.pathname}?doc=${newDocId}`;
         window.history.pushState({}, "", newUrl);
+        document.title = `HereHear! (${newDocId.substring(0, 8)})`;
         
         console.log("Created new document:", newDocId);
         console.log("Share this URL with others to collaborate!");

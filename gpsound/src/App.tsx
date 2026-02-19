@@ -13,8 +13,11 @@ function App() {
     connectedUserCount,
     connectedUsers,
     userId,
+    isDJ,
     updateUserName,
     updateUserPosition,
+    grantDJ,
+    revokeDJ,
     syncedShapes,
     addShape,
     updateShapeSound,
@@ -331,6 +334,7 @@ function App() {
               const isLastUser = index === connectedUsers.length - 1;
               // Default to true if isActive is undefined (for backwards compatibility)
               const isActive = user.isActive !== false;
+              const userIsDJ = user.isDJ === true;
 
               return (
                 <div
@@ -362,6 +366,20 @@ function App() {
                       flex: 1,
                     }}>
                       {user.name || 'Anonymous'}
+                      {userIsDJ && (
+                        <span style={{
+                          marginLeft: '6px',
+                          fontSize: '10px',
+                          backgroundColor: '#8b5cf6',
+                          color: 'white',
+                          padding: '1px 5px',
+                          borderRadius: '3px',
+                          fontWeight: 600,
+                          verticalAlign: 'middle',
+                        }}>
+                          DJ
+                        </span>
+                      )}
                       {isCurrentUser && (
                         <span style={{
                           marginLeft: '6px',
@@ -384,6 +402,34 @@ function App() {
                         </span>
                       )}
                     </div>
+                    {/* Promote/Demote DJ button - only shown to DJs, for other users */}
+                    {isDJ && !isCurrentUser && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (userIsDJ) {
+                            revokeDJ(user.id);
+                          } else {
+                            grantDJ(user.id);
+                          }
+                        }}
+                        title={userIsDJ ? 'Remove DJ privileges' : 'Grant DJ privileges'}
+                        style={{
+                          padding: '2px 6px',
+                          border: 'none',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          backgroundColor: userIsDJ ? '#fecaca' : '#ddd6fe',
+                          color: userIsDJ ? '#dc2626' : '#7c3aed',
+                          flexShrink: 0,
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {userIsDJ ? 'Remove DJ' : 'Make DJ'}
+                      </button>
+                    )}
                   </div>
                   <div style={{
                     fontSize: '11px',
@@ -411,6 +457,7 @@ function App() {
       <DrawMapZones
         connectedUsers={connectedUsers}
         currentUserId={userId}
+        isDJ={isDJ}
         updateUserPosition={updateUserPosition}
         syncedShapes={syncedShapes}
         addShape={addShape}

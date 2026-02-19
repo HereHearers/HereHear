@@ -38,6 +38,7 @@ interface ConvertedCoords {
 interface DrawMapZonesProps {
     connectedUsers: (User & { isActive: boolean })[];
     currentUserId: string;
+    isDJ: boolean;
     updateUserPosition: (lat: number, lng: number) => void;
     syncedShapes: SyncedShape[];
     addShape: (type: string, coordinates: any, soundId?: string | null) => string;
@@ -53,7 +54,8 @@ interface DrawMapZonesProps {
 
 const DrawMapZones = ({ 
     connectedUsers, 
-    currentUserId, 
+    currentUserId,
+    isDJ,
     updateUserPosition,
     syncedShapes,
     addShape,
@@ -100,6 +102,9 @@ const DrawMapZones = ({
     // Track shapes created locally that are pending Automerge confirmation
     const pendingLocalShapesRef = useRef<Set<string>>(new Set());
     
+    // Track the Leaflet draw control so we can add/remove it based on DJ status
+    const drawControlRef = useRef<L.Control.Draw | null>(null);
+    
     // Track last location update time
     const lastCalculationRef = useRef<number>(0);
     const THROTTLE_MS = 500; // Calculate at most once per 0.5s
@@ -108,13 +113,15 @@ const DrawMapZones = ({
     const addShapeRef = useRef(addShape);
     const deleteShapeRef = useRef(deleteShape);
     const syncedShapesRef = useRef(syncedShapes);
+    const isDJRef = useRef(isDJ);
     
     // Keep refs up to date
     useEffect(() => {
         addShapeRef.current = addShape;
         deleteShapeRef.current = deleteShape;
         syncedShapesRef.current = syncedShapes;
-    }, [addShape, deleteShape, syncedShapes]);
+        isDJRef.current = isDJ;
+    }, [addShape, deleteShape, syncedShapes, isDJ]);
 
     // Track if this user is the transport master
     const [isTransportMaster, setIsTransportMaster] = useState(false);
@@ -172,13 +179,13 @@ const DrawMapZones = ({
         const drawControl = new L.Control.Draw({
             draw: {
                 polyline: false,
-                marker: false, // Disable marker tool - using user markers instead
+                marker: false,
             },
             edit: {
                 featureGroup: drawnItems,
             }
         });
-        map.addControl(drawControl);
+        drawControlRef.current = drawControl;
         L.control.scale().addTo(map);
         mapInstanceRef.current = map;
         drawnItemsRef.current = drawnItems;
@@ -218,20 +225,19 @@ const DrawMapZones = ({
                 setDrawnShapes(prev => [...prev, flatShape]);
             }
 
-            // Add click handler to the new shape
+            // Add click handler to the new shape (DJ-only: opens sound selector)
             if (flatShape !== null) {
                 layer.on('click', function (e: any) {
-                    if (!mapInstanceRef.current) return;
+                    if (!mapInstanceRef.current || !isDJRef.current) return;
                     const containerPoint = map.mouseEventToContainerPoint(e.originalEvent);
                     
-                    // Get sound type from synced shapes (use ref to avoid stale closure)
                     const syncedShape = syncedShapesRef.current.find(s => s.id === syncId);
                     const currentsoundId = syncedShape?.soundId || null;
 
                     setSoundDropdown({
                         show: true,
                         position: { x: containerPoint.x, y: containerPoint.y },
-                        shapeId: syncId as any, // Use sync ID for sound selection
+                        shapeId: syncId as any,
                         soundId: currentsoundId
                     });
                 });
@@ -283,6 +289,24 @@ const DrawMapZones = ({
             }
         };
     }, []);
+
+    // Toggle draw control visibility based on DJ status
+    useEffect(() => {
+        if (!mapInstanceRef.current || !drawControlRef.current) return;
+        
+        const map = mapInstanceRef.current;
+        const drawControl = drawControlRef.current;
+        
+        if (isDJ) {
+            map.addControl(drawControl);
+        } else {
+            map.removeControl(drawControl);
+        }
+        
+        return () => {
+            try { map.removeControl(drawControl); } catch (_) { /* already removed */ }
+        };
+    }, [isDJ]);
 
     // Function to create a custom icon with username label
     const createUserIcon = (username: string, isCurrentUser: boolean, locMode?: LocationMode) => {
@@ -504,13 +528,11 @@ const DrawMapZones = ({
                     setDrawnShapes(prev => [...prev, flatShape]);
                 }
                 
-                // Add click handler for sound dropdown
-                // Store syncId in closure, but get current sound from ref
+                // Add click handler for sound dropdown (DJ-only)
                 const shapeIdForHandler = syncedShape.id;
                 layer.on('click', function (e: any) {
-                    if (!mapInstanceRef.current) return;
+                    if (!mapInstanceRef.current || !isDJRef.current) return;
                     const containerPoint = map.mouseEventToContainerPoint(e.originalEvent);
-                    // Get current sound from syncedShapesRef to avoid stale closure
                     const currentShape = syncedShapesRef.current.find(s => s.id === shapeIdForHandler);
                     const currentSound = currentShape?.soundId || null;
                     
@@ -1122,29 +1144,31 @@ const DrawMapZones = ({
         <div style={{ height: '100vh', width: '100vw', position: 'relative' }}>
             <div ref={mapRef} style={{ height: '100%', width: '100%' }} />
 
-            {/* Zone Management Button */}
-            <button
-                onClick={() => setShowZoneManagement(!showZoneManagement)}
-                style={{
-                    position: 'absolute',
-                    top: '600px',
-                    left: '10px',
-                    backgroundColor: '#8b5cf6',
-                    color: 'white',
-                    padding: '8px 12px',
-                    border: 'none',
-                    borderRadius: '4px',
-                    fontSize: '14px',
-                    cursor: 'pointer',
-                    zIndex: 1000,
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                }}
-            >
-                {showZoneManagement ? '📍 Hide Zones' : '📍 Zone Management'}
-            </button>
+            {/* Zone Management Button (DJ only) */}
+            {isDJ && (
+                <button
+                    onClick={() => setShowZoneManagement(!showZoneManagement)}
+                    style={{
+                        position: 'absolute',
+                        top: '600px',
+                        left: '10px',
+                        backgroundColor: '#8b5cf6',
+                        color: 'white',
+                        padding: '8px 12px',
+                        border: 'none',
+                        borderRadius: '4px',
+                        fontSize: '14px',
+                        cursor: 'pointer',
+                        zIndex: 1000,
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                    }}
+                >
+                    {showZoneManagement ? '📍 Hide Zones' : '📍 Zone Management'}
+                </button>
+            )}
 
-            {/* Zone Management Menu */}
-            {showZoneManagement && (
+            {/* Zone Management Menu (DJ only) */}
+            {isDJ && showZoneManagement && (
                 <>
                     {/* Overlay to close on click outside */}
                     <div

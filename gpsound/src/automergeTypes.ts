@@ -12,6 +12,7 @@ export interface User {
   connectedAt: number; // timestamp
   lastSeen: number; // timestamp for heartbeat
   hiddenSince?: number; // timestamp when tab became hidden (undefined if visible)
+  isDJ?: boolean; // whether user has DJ (admin) privileges
   position?: {
     lat: number;
     lng: number;

@@ -17,6 +17,7 @@ import type { GPSoundDoc, SyncedShape } from "./automergeTypes";
 export const useAutomergeDoc = () => {
   const [docUrl, setDocUrl] = useState<AutomergeUrl | null>(null);
   const [userId] = useState(() => getUserId());
+  const [isDocCreator, setIsDocCreator] = useState(false);
 
   // Initialize document from URL or create new one
   useEffect(() => {
@@ -32,8 +33,9 @@ export const useAutomergeDoc = () => {
         console.log("Joining existing document:", docId);
         setDocUrl(url);
       } else {
-        // Create new document
+        // Create new document - this user becomes the first DJ
         console.log("Creating new document...");
+        setIsDocCreator(true);
         const handle = repo.create<GPSoundDoc>();
         
         // Initialize the document with an empty users object
@@ -84,6 +86,11 @@ export const useAutomergeDoc = () => {
             lastSeen: now,
           };
           
+          // Document creator automatically becomes a DJ
+          if (isDocCreator) {
+            newUser.isDJ = true;
+          }
+          
           // Only set hiddenSince if tab is hidden
           if (!isVisible) {
             newUser.hiddenSince = now;
@@ -132,7 +139,7 @@ export const useAutomergeDoc = () => {
       // Note: We're not removing the user from the document on unmount
       // In a production app, you'd want a cleanup strategy for stale users
     };
-  }, [changeDoc, userId]);
+  }, [changeDoc, userId, isDocCreator]);
 
   // Get list of connected users with computed isActive status
   // Use a longer timeout to account for browser throttling of background tabs
@@ -187,6 +194,34 @@ export const useAutomergeDoc = () => {
       }
     });
   }, [changeDoc, userId]);
+
+  // Determine if the current user is a DJ
+  const isDJ = useMemo(() => {
+    if (!doc?.users?.[userId]) return false;
+    return doc.users[userId].isDJ === true;
+  }, [doc?.users, userId]);
+
+  // Grant DJ privileges to another user (only DJs can do this)
+  const grantDJ = useCallback((targetUserId: string) => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      if (d.users?.[targetUserId]) {
+        d.users[targetUserId].isDJ = true;
+      }
+    });
+  }, [changeDoc]);
+
+  // Revoke DJ privileges from another user (only DJs can do this)
+  const revokeDJ = useCallback((targetUserId: string) => {
+    if (!changeDoc) return;
+    
+    changeDoc((d) => {
+      if (d.users?.[targetUserId]) {
+        delete d.users[targetUserId].isDJ;
+      }
+    });
+  }, [changeDoc]);
 
   // Get all synced shapes
   const syncedShapes = useMemo(() => {
@@ -296,10 +331,13 @@ export const useAutomergeDoc = () => {
     doc,
     changeDoc,
     userId,
+    isDJ,
     connectedUsers,
     connectedUserCount: connectedUsers.length,
     updateUserName,
     updateUserPosition,
+    grantDJ,
+    revokeDJ,
     syncedShapes,
     addShape,
     updateShapeSound,

@@ -431,14 +431,6 @@ function App() {
                       </button>
                     )}
                   </div>
-                  <div style={{
-                    fontSize: '11px',
-                    color: '#9ca3af',
-                    marginTop: '2px',
-                    marginLeft: '12px',
-                  }}>
-                    {user.id.substring(0, 12)}...
-                  </div>
                 </div>
               );
             })}

@@ -25,7 +25,7 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        working-directory: gpsound
+        working-directory: herehear
         run: npm install
 
       - name: Extract branch name
@@ -33,7 +33,7 @@ jobs:
         run: echo "name=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
 
       - name: Build
-        working-directory: gpsound
+        working-directory: herehear
         env:
           BASE_PATH: /build/${{ steps.branch.outputs.name }}/
         run: npm run build
@@ -44,6 +44,6 @@ jobs:
           personal_token: ${{ secrets.DEPLOY_TOKEN }}
           external_repository: HereHearers/build
           publish_branch: main
-          publish_dir: ./gpsound/dist
+          publish_dir: ./herehear/dist
           destination_dir: ${{ steps.branch.outputs.name }}
           keep_files: true

@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { AutomergeUrl } from "@automerge/automerge-repo";
 import { useDocument } from "@automerge/automerge-repo-react-hooks";
 import { repo, getUserId } from "./automergeSetup";
-import type { GPSoundDoc, SyncedShape } from "./automergeTypes";
+import type { HereHearDoc, SyncedShape } from "./automergeTypes";
 
 /**
  * Custom hook that manages the Automerge document lifecycle
@@ -35,7 +35,7 @@ export const useAutomergeDoc = () => {
       } else {
         // Create new document
         console.log("Creating new document...");
-        const handle = repo.create<GPSoundDoc>();
+        const handle = repo.create<HereHearDoc>();
         
         // Initialize the document with an empty users object
         handle.change((doc) => {
@@ -62,7 +62,7 @@ export const useAutomergeDoc = () => {
   }, []);
 
   // Use Automerge's useDocument hook to get live updates
-  const [doc, changeDoc] = useDocument<GPSoundDoc>(docUrl);
+  const [doc, changeDoc] = useDocument<HereHearDoc>(docUrl);
 
   // Manage user presence: add this user and send heartbeats
   useEffect(() => {
@@ -191,7 +191,7 @@ export const useAutomergeDoc = () => {
   }, [changeDoc, userId]);
 
   // Get all synced shapes
-  const syncedShapes = useMemo(() => {
+  const syncedShapes: SyncedShape[] = useMemo(() => {
     if (!doc?.shapes) return [];
     return Object.values(doc.shapes);
   }, [doc?.shapes]);
@@ -271,28 +271,20 @@ export const useAutomergeDoc = () => {
   }, [changeDoc]);
 
   // Function to initialize transport if it doesn't exist
-  // Returns true if this user became the master, false otherwise
-  const initializeTransportIfNeeded = useCallback((): boolean => {
-    if (!changeDoc || !doc) return false;
+  const initializeTransportIfNeeded = useCallback(() => {
+    if (!changeDoc) return;
 
-    // If transport already exists, don't initialize
-    if (doc.transport) return false;
-
-    // Initialize transport with current user as master
     changeDoc((d) => {
       if (!d.transport) {
         d.transport = {
+          startTime: null,
           bpm: 120,
           isPlaying: false,
-          position: "0:0:0",
-          lastUpdated: Date.now(),
-          masterId: userId
+          pausedPosition: 0
         };
       }
     });
-
-    return true;
-  }, [changeDoc, doc, userId]);
+  }, [changeDoc]);
 
   return {
     doc,

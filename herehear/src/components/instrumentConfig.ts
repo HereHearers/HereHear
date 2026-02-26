@@ -7,8 +7,8 @@ export interface SoundDefinition {
   create: () => Instrument | Instrument[];
 }
 
-type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
-type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any>;
+export type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
+export type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any> | Tone.Volume;
 
 export const SOUND_DEFINITIONS: SoundDefinition[] = [
   {
@@ -52,9 +52,13 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
     name: 'Beat Loop',
     defaultNote: 'C4',
     create: () => {
-      const player = new Tone.Player("https://tonejs.github.io/audio/drum-samples/loops/blueyellow.mp3").toDestination();
-      player.loop = true;
-      player.sync().start(0); // sync to transport
+      const player = new Tone.Player({
+        url: "https://tonejs.github.io/audio/drum-samples/loops/blueyellow.mp3",
+        loop: true,
+        onload: () => {
+          player.sync().start(0);
+        }
+      }).toDestination();
       return player;
     }
   },
@@ -63,9 +67,13 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
     name: 'Organ Loop',
     defaultNote: 'C4',
     create: () => {
-      const player = new Tone.Player("https://tonejs.github.io/audio/drum-samples/loops/organ-echo-chords.mp3").toDestination();
-      player.loop = true;
-      player.sync().start(0); // sync to transport
+      const player = new Tone.Player({
+        url: "https://tonejs.github.io/audio/drum-samples/loops/organ-echo-chords.mp3",
+        loop: true,
+        onload: () => {
+          player.sync().start(0);
+        }
+      }).toDestination();
       return player;
     }
   },
@@ -74,15 +82,16 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
     name: 'Combo Synth',
     defaultNote: 'C4',
     create: () => {
-      const synthA = new Tone.FMSynth().toDestination();
-      const synthB = new Tone.AMSynth().toDestination();
+      const masterVol = new Tone.Volume(0).toDestination();
+      const synthA = new Tone.FMSynth().connect(masterVol);
+      const synthB = new Tone.AMSynth().connect(masterVol);
       const loopA = new Tone.Loop((time) => {
         synthA.triggerAttackRelease("D2", "8n", time);
       }, "4n").start(0);
       const loopB = new Tone.Loop((time) => {
         synthB.triggerAttackRelease("A2", "8n", time);
       }, "4n").start("8n");
-      return [loopA, loopB];
+      return [loopA, loopB, masterVol];
     }
   },
   {
@@ -98,7 +107,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
         fadeOut: 0.5            // Fade out over 0.5 seconds when stopped
       }).toDestination();
 
-      noise.sync().start(0);
+      noise.start();
 
       // Create a plucky synth for the arpeggio
       // const plucky = new Tone.PluckSynth({
@@ -136,7 +145,9 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           wet: 0.3
         });
 
-        merge.chain(reverb, Tone.Destination);
+        // master volume node — returned so setSoundGain can control it
+        const masterVol = new Tone.Volume(0).toDestination();
+        merge.chain(reverb, masterVol);
 
         // left and right synthesizers
         const synthL = new Tone.Synth({
@@ -194,7 +205,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
         arp_pattern_L.start(0);
         arp_pattern_R.start(0);
 
-        return [arp_pattern_L, arp_pattern_R]
+        return [arp_pattern_L, arp_pattern_R, masterVol]
     }
   },
   {
@@ -333,13 +344,15 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
       // const chorus = new Tone.Chorus(4, 2.5, 0.5);
       const feedbackDelay = new Tone.FeedbackDelay("8n", 0.5);
 
+      const masterVol = new Tone.Volume(0).toDestination();
+
       // Steady arpeggio using Pattern
       const arpSynth = new Tone.PluckSynth({
         attackNoise: 1,
         dampening: 4000,
         resonance: 0.9,
         volume: -10
-      }).chain(reverb, feedbackDelay, Tone.Destination);
+      }).chain(reverb, feedbackDelay, masterVol);
 
       const pattern = new Tone.Pattern((time, note) => {
         arpSynth.triggerAttackRelease(note, "8n", time);
@@ -381,12 +394,12 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
             accentSynth.triggerAttackRelease(accentNotes[accentIndex], "16n");
           }, waitTimeMs);
         }
-      }).chain(feedbackDelay, accent_reverb, Tone.Destination);
+      }).chain(feedbackDelay, accent_reverb, masterVol);
 
       // Start first accent
       // accentSynth.triggerAttackRelease(accentNotes[0], "16n");
 
-      return [pattern, accentSynth];
+      return [pattern, accentSynth, masterVol];
     }
   },
   {
@@ -407,6 +420,8 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
         depth: 0.7,
         wet: 0.3
       }).start();
+
+      const masterVol = new Tone.Volume(0).toDestination();
 
       // TINTINNABULAR VOICE - arpeggiated tonic triad (C major: C-E-G)
       // Using DuoSynth for richer, more choral harmonics
@@ -433,7 +448,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           }
         },
         volume: -18
-      }).chain(chorus, reverb, Tone.Destination);
+      }).chain(chorus, reverb, masterVol);
 
       // MELODIC VOICE - diatonic stepwise motion (C major scale)
       // Using AMSynth for warm, vocal-like quality
@@ -458,7 +473,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           release: 2
         },
         volume: -16
-      }).chain(chorus, reverb, Tone.Destination);
+      }).chain(chorus, reverb, masterVol);
 
       // Tintinnabular voice: arpeggiate C major triad (C-E-G)
       const triadPattern = new Tone.Pattern((time, note) => {
@@ -478,7 +493,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
       triadPattern.start(0);
       melodicPattern.start(0);
 
-      return [triadPattern, melodicPattern];
+      return [triadPattern, melodicPattern, masterVol];
     }
   },
   {
@@ -499,6 +514,8 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
         depth: 0.7,
         wet: 0.3
       }).start();
+
+      const masterVol = new Tone.Volume(0).toDestination();
 
       // TINTINNABULAR VOICE - thirds above the original triad
       // Original: C4-E4-G4, Harmony: E4-G4-B4 (thirds above)
@@ -525,7 +542,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           }
         },
         volume: -20
-      }).chain(chorus, reverb, Tone.Destination);
+      }).chain(chorus, reverb, masterVol);
 
       // MELODIC VOICE - sixths above the original melody
       // Original: C5-D5-E5-F5-E5-D5, Harmony: A5-B5-C6-D6-C6-B5 (sixths above)
@@ -550,7 +567,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           release: 2
         },
         volume: -18
-      }).chain(chorus, reverb, Tone.Destination);
+      }).chain(chorus, reverb, masterVol);
 
       // Tintinnabular voice: thirds above original (C4-E4-G4 becomes E4-G4-B4)
       const triadPattern = new Tone.Pattern((time, note) => {
@@ -571,7 +588,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
       triadPattern.start("8n");    // Start an eighth note later
       melodicPattern.start("4n");  // Start a quarter note later
 
-      return [triadPattern, melodicPattern];
+      return [triadPattern, melodicPattern, masterVol];
     }
   },
   {
@@ -592,6 +609,8 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
         depth: 0.4,
         wet: 0.2
       }).start();
+
+      const masterVol = new Tone.Volume(0).toDestination();
 
       // TINTINNABULAR VOICE - dissonant intervals from original triad
       // Original: C4-E4-G4
@@ -619,7 +638,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           }
         },
         volume: -19
-      }).chain(chorus, reverb, Tone.Destination);
+      }).chain(chorus, reverb, masterVol);
 
       // MELODIC VOICE - major sevenths and tritones from original
       // Original: C5-D5-E5-F5-E5-D5
@@ -645,7 +664,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
           release: 1.8
         },
         volume: -17
-      }).chain(chorus, reverb, Tone.Destination);
+      }).chain(chorus, reverb, masterVol);
 
       // Tintinnabular voice: Creates minor 2nds and tritones against C4-E4-G4
       // Db4 is a minor 2nd above C4
@@ -672,7 +691,7 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
       triadPattern.start("16n");    // Start a sixteenth note later (creates close clash)
       melodicPattern.start("8n.");  // Dotted eighth for off-kilter feeling
 
-      return [triadPattern, melodicPattern];
+      return [triadPattern, melodicPattern, masterVol];
     }
   }
 ];

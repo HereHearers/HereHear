@@ -735,7 +735,7 @@ const DrawMapZones = ({
                 console.log('Updating sounds with volumes:', sounds);
                 soundPlayer.playMultipleWithVolume(sounds);
             } else {
-                console.log('Stopping all sounds');
+                console.log('Clearing all sounds');
                 soundPlayer.stopAll();
             }
         } else if (sounds.length > 0) {
@@ -1570,89 +1570,109 @@ const DrawMapZones = ({
                             </div>
                         )}
 
-                        {/* Start Button — starts from 0 */}
-                        <button
-                            onClick={handleTransportStart}
-                            disabled={!timingSyncReady || transportState?.isPlaying}
-                            style={{
-                                width: '100%',
-                                backgroundColor: (!timingSyncReady || transportState?.isPlaying) ? '#6b7280' : '#10b981',
-                                color: 'white',
-                                padding: '8px 12px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontSize: '14px',
-                                cursor: (!timingSyncReady || transportState?.isPlaying) ? 'not-allowed' : 'pointer',
-                                marginBottom: '8px',
-                                fontWeight: '500',
-                                opacity: (!timingSyncReady || transportState?.isPlaying) ? 0.6 : 1
-                            }}
-                        >
-                            ▶ Start
-                        </button>
-
-                        {/* Resume Button — resumes from paused position */}
-                        <button
-                            onClick={handleTransportResume}
-                            disabled={!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)}
-                            style={{
-                                width: '100%',
-                                backgroundColor: (!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)) ? '#6b7280' : '#3b82f6',
-                                color: 'white',
-                                padding: '8px 12px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontSize: '14px',
-                                cursor: (!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)) ? 'not-allowed' : 'pointer',
-                                marginBottom: '8px',
-                                fontWeight: '500',
-                                opacity: (!timingSyncReady || transportState?.isPlaying || !(transportState?.pausedPosition && transportState.pausedPosition > 0)) ? 0.6 : 1
-                            }}
-                        >
-                            ▶▶ Resume
-                        </button>
-
-                        {/* Pause Button */}
-                        <button
-                            onClick={handleTransportPause}
-                            disabled={!timingSyncReady || !transportState?.isPlaying}
-                            style={{
-                                width: '100%',
-                                backgroundColor: (!timingSyncReady || !transportState?.isPlaying) ? '#6b7280' : '#f59e0b',
-                                color: 'white',
-                                padding: '8px 12px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontSize: '14px',
-                                cursor: (!timingSyncReady || !transportState?.isPlaying) ? 'not-allowed' : 'pointer',
-                                marginBottom: '8px',
-                                fontWeight: '500',
-                                opacity: (!timingSyncReady || !transportState?.isPlaying) ? 0.6 : 1
-                            }}
-                        >
-                            ⏸ Pause
-                        </button>
-
-                        {/* Reset Button — resets position to 0 */}
-                        <button
-                            onClick={handleTransportReset}
-                            disabled={!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))}
-                            style={{
-                                width: '100%',
-                                backgroundColor: (!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))) ? '#6b7280' : '#ef4444',
-                                color: 'white',
-                                padding: '8px 12px',
-                                border: 'none',
-                                borderRadius: '4px',
-                                fontSize: '14px',
-                                cursor: (!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))) ? 'not-allowed' : 'pointer',
-                                marginBottom: '8px',
-                                fontWeight: '500',
-                                opacity: (!timingSyncReady || (!transportState?.isPlaying && !(transportState?.pausedPosition && transportState.pausedPosition > 0))) ? 0.6 : 1
-                            }}
-                        >
-                            ⏹ Reset
-                        </button>
+                        {/* Transport playback buttons — context-sensitive */}
+                        {transportState?.isPlaying ? (<>
+                            {/* Playing: Pause + Reset */}
+                            <button
+                                onClick={handleTransportPause}
+                                disabled={!timingSyncReady}
+                                style={{
+                                    width: '100%',
+                                    backgroundColor: !timingSyncReady ? '#6b7280' : '#f59e0b',
+                                    color: 'white',
+                                    padding: '8px 12px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    cursor: !timingSyncReady ? 'not-allowed' : 'pointer',
+                                    marginBottom: '8px',
+                                    fontWeight: '500',
+                                    opacity: !timingSyncReady ? 0.6 : 1
+                                }}
+                            >
+                                ⏸ Pause
+                            </button>
+                            <button
+                                onClick={handleTransportReset}
+                                disabled={!timingSyncReady}
+                                style={{
+                                    width: '100%',
+                                    backgroundColor: !timingSyncReady ? '#6b7280' : '#ef4444',
+                                    color: 'white',
+                                    padding: '8px 12px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    cursor: !timingSyncReady ? 'not-allowed' : 'pointer',
+                                    marginBottom: '8px',
+                                    fontWeight: '500',
+                                    opacity: !timingSyncReady ? 0.6 : 1
+                                }}
+                            >
+                                ⏹ Reset
+                            </button>
+                        </>) : (transportState?.pausedPosition && transportState.pausedPosition > 0) ? (<>
+                            {/* Paused: Resume + Reset */}
+                            <button
+                                onClick={handleTransportResume}
+                                disabled={!timingSyncReady}
+                                style={{
+                                    width: '100%',
+                                    backgroundColor: !timingSyncReady ? '#6b7280' : '#3b82f6',
+                                    color: 'white',
+                                    padding: '8px 12px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    cursor: !timingSyncReady ? 'not-allowed' : 'pointer',
+                                    marginBottom: '8px',
+                                    fontWeight: '500',
+                                    opacity: !timingSyncReady ? 0.6 : 1
+                                }}
+                            >
+                                ▶ Resume
+                            </button>
+                            <button
+                                onClick={handleTransportReset}
+                                disabled={!timingSyncReady}
+                                style={{
+                                    width: '100%',
+                                    backgroundColor: !timingSyncReady ? '#6b7280' : '#ef4444',
+                                    color: 'white',
+                                    padding: '8px 12px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    cursor: !timingSyncReady ? 'not-allowed' : 'pointer',
+                                    marginBottom: '8px',
+                                    fontWeight: '500',
+                                    opacity: !timingSyncReady ? 0.6 : 1
+                                }}
+                            >
+                                ⏹ Reset
+                            </button>
+                        </>) : (
+                            /* Idle: Start only */
+                            <button
+                                onClick={handleTransportStart}
+                                disabled={!timingSyncReady}
+                                style={{
+                                    width: '100%',
+                                    backgroundColor: !timingSyncReady ? '#6b7280' : '#10b981',
+                                    color: 'white',
+                                    padding: '8px 12px',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    fontSize: '14px',
+                                    cursor: !timingSyncReady ? 'not-allowed' : 'pointer',
+                                    marginBottom: '8px',
+                                    fontWeight: '500',
+                                    opacity: !timingSyncReady ? 0.6 : 1
+                                }}
+                            >
+                                ▶ Start
+                            </button>
+                        )}
 
                         {/* BPM Control */}
                         <div style={{ marginTop: '12px' }}>

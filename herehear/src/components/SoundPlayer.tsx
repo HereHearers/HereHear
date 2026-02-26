@@ -1,9 +1,6 @@
 import * as Tone from 'tone';
 import { type SoundConfig } from '../sharedTypes';
-import { getSoundDefinition } from './instrumentConfig';
-
-type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
-type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any>;
+import { getSoundDefinition, type SynthInstrument, type Instrument } from './instrumentConfig';
 type InstrumentGroup = Instrument | Instrument[];
 
 export class SoundPlayer {
@@ -57,11 +54,11 @@ export class SoundPlayer {
 
   async playMultipleWithVolume(sounds: Array<SoundConfig & { volume: number }>): Promise<void> {
     await Tone.start();
-    
+    console.log(sounds)
     // Create a set of incoming sound IDs
     const incomingSoundIds = new Set(sounds.map(s => s.soundId));
     
-    // Stop sounds that are no longer needed
+    // Stop sounds that are no longer needed - not sure when this would be called
     const soundsToStop: string[] = [];
     for (const soundId of this.soundMap.keys()) {
         if (!incomingSoundIds.has(soundId)) {
@@ -69,16 +66,22 @@ export class SoundPlayer {
         }
     }
     soundsToStop.forEach(soundId => this.stopSound(soundId));
-    
+    // console.log(soundsToStop)
     // Start new sounds or update existing ones
     for (const { soundId, note, volume } of sounds) {
         if (this.soundMap.has(soundId)) {
+            // console.log("sound id:" + soundId)
             // Sound is already playing, just update volume
             const sound = this.soundMap.get(soundId)!;
             this.setSoundGain(sound, volume);
         } else {
             // New sound, start it
+            console.log("sound id is new: " + soundId)
             const sound = this.createSound(soundId);
+            console.log(sound)
+            // Tone.start()
+            // sound.sync().start()
+            // sound.sync().start(0)
             this.soundMap.set(soundId, sound);
             this.activeSounds.push(sound);
             
@@ -161,6 +164,7 @@ export class SoundPlayer {
 
   private createSound(soundId: string): InstrumentGroup {
     const definition = getSoundDefinition(soundId);
+    // console.log(definition)
     if (definition) {
       return definition.create();
     }

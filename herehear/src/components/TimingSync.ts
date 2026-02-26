@@ -58,6 +58,7 @@ export class TimingSync {
 
         const transport = Tone.getTransport();
         const prevBpm = this.currentState.bpm;
+        const wasPlaying = this.currentState.isPlaying;
 
         // Update local state
         this.currentState = { ...state };
@@ -74,15 +75,21 @@ export class TimingSync {
 
         // Update play/pause state and position
         if (state.isPlaying && state.startTime) {
-            // Calculate current position based on elapsed time
             const elapsed = Date.now() - state.startTime;
             const positionInSeconds = elapsed / 1000;
 
-            transport.seconds = positionInSeconds;
-
-            if (transport.state !== 'started') {
+            if (!wasPlaying || transport.state !== 'started') {
+                // State transition (paused → playing): seek to the correct position then start.
                 console.log('[TimingSync] Starting Transport');
+                transport.seconds = positionInSeconds;
                 transport.start();
+            } else {
+                // Already playing — only correct if drift exceeds threshold to avoid glitches.
+                const drift = Math.abs(transport.seconds - positionInSeconds);
+                if (drift > 0.05) {
+                    console.log(`[TimingSync] syncFromRemote correcting drift: ${(drift * 1000).toFixed(1)}ms`);
+                    this.seekTo(positionInSeconds);
+                }
             }
         } else {
             if (transport.state === 'started') {
@@ -90,6 +97,21 @@ export class TimingSync {
                 transport.pause();
             }
         }
+    }
+
+    /**
+     * Smoothly seek to targetSeconds while the transport is playing.
+     * Instead of a hard seek (which glitches audio), we pause, set position,
+     * and schedule restart a short lookahead into the future.
+     * The target is pre-compensated by the lookahead so the sync loop won't
+     * immediately re-flag the correction as new drift.
+     */
+    private seekTo(targetSeconds: number): void {
+        const lookahead = 0.05; // 50ms
+        const transport = Tone.getTransport();
+        transport.pause();
+        transport.seconds = targetSeconds + lookahead;
+        transport.start(Tone.now() + lookahead);
     }
 
     private syncToTransport() {
@@ -106,11 +128,11 @@ export class TimingSync {
         // Get current transport position in seconds
         const currentPosition = transport.seconds;
 
-        // If drift is more than 50ms, resync
+        // If drift is more than 50ms, resync smoothly
         const drift = Math.abs(currentPosition - expectedPosition);
         if (drift > 0.05) {
             console.log(`[TimingSync] Correcting drift: ${(drift * 1000).toFixed(1)}ms`);
-            transport.seconds = expectedPosition;
+            this.seekTo(expectedPosition);
         }
     }
 

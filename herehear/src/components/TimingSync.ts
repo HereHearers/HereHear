@@ -1,18 +1,12 @@
 import * as Tone from 'tone';
-
-export interface TransportSyncState {
-    startTime: number | null; // Timestamp in ms when transport started (null when paused)
-    bpm: number;
-    isPlaying: boolean;
-    pausedPosition: number; // Transport position in seconds when paused (0 = beginning)
-}
+import type { TransportState } from '../automergeTypes';
 
 export class TimingSync {
     private static instance: TimingSync | null = null;
     private updateInterval: number | null = null;
     private isInitialized: boolean = false;
     private onBpmChangeCallback: ((bpm: number) => void) | null = null;
-    private currentState: TransportSyncState = {
+    private currentState: TransportState = {
         startTime: null,
         bpm: 120,
         isPlaying: false,
@@ -53,7 +47,7 @@ export class TimingSync {
      * Update from remote Automerge state
      * Call this when the shared transport state changes
      */
-    syncFromRemote(state: TransportSyncState) {
+    syncFromRemote(state: TransportState) {
         if (!this.isInitialized) return;
 
         const transport = Tone.getTransport();
@@ -153,7 +147,7 @@ export class TimingSync {
      * Call this when local user changes BPM
      * Returns the new state to share via Automerge
      */
-    setBPM(bpm: number): TransportSyncState {
+    setBPM(bpm: number): TransportState {
         if (!this.isInitialized) {
             console.warn('TimingSync not initialized');
             return this.currentState;
@@ -172,7 +166,7 @@ export class TimingSync {
      * Start playback from position 0.
      * Returns the new state to share via Automerge.
      */
-    start(): TransportSyncState {
+    start(): TransportState {
         if (!this.isInitialized) {
             console.warn('TimingSync not initialized');
             return this.currentState;
@@ -195,7 +189,7 @@ export class TimingSync {
      * Resume playback from the paused position.
      * Returns the new state to share via Automerge.
      */
-    resume(): TransportSyncState {
+    resume(): TransportState {
         if (!this.isInitialized) {
             console.warn('TimingSync not initialized');
             return this.currentState;
@@ -224,7 +218,7 @@ export class TimingSync {
      * Pause playback, preserving current position for resume.
      * Returns the new state to share via Automerge.
      */
-    pause(): TransportSyncState {
+    pause(): TransportState {
         if (!this.isInitialized) {
             console.warn('TimingSync not initialized');
             return this.currentState;
@@ -247,7 +241,7 @@ export class TimingSync {
      * Reset position to 0 without changing play/pause state.
      * Returns the new state to share via Automerge.
      */
-    reset(): TransportSyncState {
+    reset(): TransportState {
         if (!this.isInitialized) {
             console.warn('TimingSync not initialized');
             return this.currentState;
@@ -265,7 +259,7 @@ export class TimingSync {
         return { ...this.currentState };
     }
 
-    getState(): TransportSyncState {
+    getState(): TransportState {
         return { ...this.currentState };
     }
 
@@ -281,5 +275,6 @@ export class TimingSync {
         }
         this.isInitialized = false;
         this.onBpmChangeCallback = null;
+        TimingSync.instance = null;
     }
 }

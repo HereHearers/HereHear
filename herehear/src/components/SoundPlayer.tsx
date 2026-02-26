@@ -1,6 +1,6 @@
 import * as Tone from 'tone';
 import { type SoundConfig } from '../sharedTypes';
-import { getSoundDefinition, type SynthInstrument, type Instrument } from './instrumentConfig';
+import { getSoundDefinition, type SynthInstrument, type Instrument } from './SoundConfig';
 type InstrumentGroup = Instrument | Instrument[];
 
 export class SoundPlayer {

@@ -1,5 +1,5 @@
 // import SoundPlayer from './SoundPlayer';
-import { SOUND_DEFINITIONS } from './instrumentConfig';
+import { SOUND_DEFINITIONS } from './SoundConfig';
 
 interface SoundKitProps {
   show: boolean;

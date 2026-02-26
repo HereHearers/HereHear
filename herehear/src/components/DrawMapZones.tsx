@@ -4,7 +4,7 @@ import 'leaflet-draw';
 import Flatten from 'flatten-js';
 import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
-import { SOUND_DEFINITIONS } from './instrumentConfig';
+import { SOUND_DEFINITIONS } from './SoundConfig';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
 import type { User, SyncedShape, TransportState } from '../automergeTypes';
 import { TimingSync } from './TimingSync';

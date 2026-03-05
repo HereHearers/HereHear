@@ -77,6 +77,22 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
       return player;
     }
   },
+    {
+    id: 'fourOnTheFloor',
+    name: '4 on the Floor',
+    defaultNote: 'C4',
+    create: () => {
+      const masterVol = new Tone.Volume(0).toDestination();
+      const kick = new Tone.MembraneSynth().connect(masterVol);
+
+      // 2. Create a loop that plays on every quarter note (4 on the floor)
+      const loop = new Tone.Loop((time) => {
+        kick.triggerAttackRelease("C2", "8n", time);
+      }, "4n").start(0);
+
+      return [loop, masterVol];
+    }
+  },
   {
     id: 'combo_synth',
     name: 'Combo Synth',

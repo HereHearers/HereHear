@@ -8,7 +8,7 @@ export interface SoundDefinition {
 }
 
 export type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
-export type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any> | Tone.Volume;
+export type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any> | Tone.Part<any> | Tone.Volume;
 
 export const SOUND_DEFINITIONS: SoundDefinition[] = [
   {
@@ -107,6 +107,50 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
       }, "4n").start("8n");
 
       return [kickLoop, hihatLoop, masterVol];
+    }
+  },
+  {
+    id: 'fourOnTheFloor_part',
+    name: '4 on the Floor (Part)',
+    defaultNote: 'C4',
+    create: () => {
+      const masterVol = new Tone.Volume(0).toDestination();
+      const kick = new Tone.MembraneSynth({
+        pitchDecay: 0.08,
+        octaves: 8,
+        envelope: { attack: 0.001, decay: 0.4, sustain: 0, release: 0.1 },
+      }).connect(masterVol);
+      const hihat = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
+        harmonicity: 5.1,
+        modulationIndex: 32,
+        resonance: 4000,
+        octaves: 1.5,
+        volume: -12,
+      }).connect(masterVol);
+
+      const part = new Tone.Part((time, event: { type: string }) => {
+        if (event.type === 'kick') {
+          kick.triggerAttackRelease("C2", "8n", time);
+        } else {
+          hihat.triggerAttackRelease("16n", time);
+        }
+      }, [
+        { time: "0:0:0", type: "kick" },
+        { time: "0:0:2", type: "hihat" },
+        { time: "0:1:0", type: "kick" },
+        { time: "0:1:2", type: "hihat" },
+        { time: "0:2:0", type: "kick" },
+        { time: "0:2:2", type: "hihat" },
+        { time: "0:3:0", type: "kick" },
+        { time: "0:3:2", type: "hihat" },
+      ]);
+
+      part.loop = true;
+      part.loopEnd = "1m";
+      part.start(0);
+
+      return [part, masterVol];
     }
   },
   {

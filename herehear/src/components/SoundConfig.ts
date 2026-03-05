@@ -83,14 +83,30 @@ export const SOUND_DEFINITIONS: SoundDefinition[] = [
     defaultNote: 'C4',
     create: () => {
       const masterVol = new Tone.Volume(0).toDestination();
-      const kick = new Tone.MembraneSynth().connect(masterVol);
+      const kick = new Tone.MembraneSynth({
+        pitchDecay: 0.08,
+        octaves: 8,
+        envelope: { attack: 0.001, decay: 0.3, sustain: 0, release: 0.1 },
+      }).connect(masterVol);
+      const hihat = new Tone.MetalSynth({
+        envelope: { attack: 0.001, decay: 0.1, release: 0.01 },
+        harmonicity: 5.1,
+        modulationIndex: 32,
+        resonance: 4000,
+        octaves: 1.5,
+        volume: -10,
+      }).connect(masterVol);
 
-      // 2. Create a loop that plays on every quarter note (4 on the floor)
-      const loop = new Tone.Loop((time) => {
+      // kick every quarter note (4 on the floor), hihat on the upbeat (every "and")
+      const kickLoop = new Tone.Loop((time) => {
         kick.triggerAttackRelease("C2", "8n", time);
       }, "4n").start(0);
 
-      return [loop, masterVol];
+      const hihatLoop = new Tone.Loop((time) => {
+        hihat.triggerAttackRelease("16n", time);
+      }, "4n").start("8n");
+
+      return [kickLoop, hihatLoop, masterVol];
     }
   },
   {

@@ -1,10 +1,8 @@
 import * as Tone from 'tone';
 import { type SoundConfig } from '../sharedTypes';
-import { getSoundDefinition } from './instrumentConfig';
+import { getSoundDefinition, type SynthInstrument, type Instrument } from './instrumentConfig';
 import type { TransportState } from '../automergeTypes';
 
-type SynthInstrument = Tone.Synth | Tone.FMSynth | Tone.AMSynth | Tone.MonoSynth | Tone.MembraneSynth | Tone.NoiseSynth | Tone.PluckSynth | Tone.MetalSynth;
-type Instrument = SynthInstrument | Tone.Loop | Tone.Player | Tone.Noise | Tone.Pattern<any>;
 type InstrumentGroup = Instrument | Instrument[];
 
 export class SoundPlayer {

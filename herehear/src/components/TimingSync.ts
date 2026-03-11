@@ -15,6 +15,12 @@ export class TimingSync {
 
     private constructor() {}
 
+    /** High-resolution, monotonic wall-clock time in milliseconds.
+     *  Equivalent to Date.now() but sub-millisecond precise and immune to NTP jumps. */
+    private now(): number {
+        return performance.timeOrigin + performance.now();
+    }
+
     static getInstance(): TimingSync {
         if (!TimingSync.instance) {
             TimingSync.instance = new TimingSync();
@@ -69,7 +75,7 @@ export class TimingSync {
 
         // Update play/pause state and position
         if (state.isPlaying && state.startTime) {
-            const elapsed = Date.now() - state.startTime;
+            const elapsed = this.now() - state.startTime;
             const positionInSeconds = elapsed / 1000;
 
             if (!wasPlaying || transport.state !== 'started') {
@@ -116,7 +122,7 @@ export class TimingSync {
         const transport = Tone.getTransport();
 
         // Calculate where we should be based on startTime
-        const elapsed = Date.now() - this.currentState.startTime;
+        const elapsed = this.now() - this.currentState.startTime;
         const expectedPosition = elapsed / 1000;
 
         // Get current transport position in seconds
@@ -175,7 +181,7 @@ export class TimingSync {
         const transport = Tone.getTransport();
         transport.seconds = 0;
 
-        this.currentState.startTime = Date.now();
+        this.currentState.startTime = this.now();
         this.currentState.isPlaying = true;
         this.currentState.pausedPosition = 0;
 
@@ -205,7 +211,7 @@ export class TimingSync {
 
         transport.seconds = pos;
         // Adjust startTime so elapsed calculation picks up from pausedPosition
-        this.currentState.startTime = Date.now() - (pos * 1000);
+        this.currentState.startTime = this.now() - (pos * 1000);
         this.currentState.isPlaying = true;
 
         transport.start();
@@ -225,7 +231,7 @@ export class TimingSync {
         }
 
         if (this.currentState.startTime) {
-            this.currentState.pausedPosition = (Date.now() - this.currentState.startTime) / 1000;
+            this.currentState.pausedPosition = (this.now() - this.currentState.startTime) / 1000;
         }
         this.currentState.isPlaying = false;
         this.currentState.startTime = null;
@@ -252,7 +258,7 @@ export class TimingSync {
         this.currentState.pausedPosition = 0;
 
         if (this.currentState.isPlaying) {
-            this.currentState.startTime = Date.now();
+            this.currentState.startTime = this.now();
         }
 
         console.log('Reset position to 0');

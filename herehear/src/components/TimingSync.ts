@@ -21,6 +21,9 @@ export class TimingSync {
     private _audioContextStartTime: number | null = null;
     private _audioContextStartOffset: number = 0;
 
+    /** How far in the future (ms) to schedule playback start, giving remote clients time to join. */
+    private static readonly START_BUFFER_MS = 100;
+
     private constructor() {}
 
     /** High-resolution, monotonic wall-clock time in milliseconds.
@@ -95,14 +98,20 @@ export class TimingSync {
         // Update play/pause state and position
         if (state.isPlaying && state.startTime) {
             // Wall-clock elapsed is only used here, for the initial cross-device seek.
-            const elapsed = this.now() - state.startTime;
-            const positionInSeconds = elapsed / 1000;
+            const msUntilStart = state.startTime - this.now();
+            const positionInSeconds = Math.max(0, -msUntilStart / 1000);
 
             if (!wasPlaying || transport.state !== 'started') {
-                // State transition (paused → playing): seek to the correct position then start.
+                // State transition (paused → playing): join at the correct position.
                 console.log('[TimingSync] Starting Transport');
                 transport.seconds = positionInSeconds;
-                transport.start();
+                if (msUntilStart > 0) {
+                    // startTime is in the future — schedule to start exactly on beat 0.
+                    transport.start(`+${msUntilStart / 1000}`);
+                } else {
+                    // startTime already passed — fast-forward to current position.
+                    transport.start();
+                }
                 // Anchor AudioContext time so the sync loop stays in AudioContext time-space.
                 this.anchorAudioContext(positionInSeconds);
             } else {
@@ -188,14 +197,16 @@ export class TimingSync {
             return this.currentState;
         }
 
+        const bufferSec = TimingSync.START_BUFFER_MS / 1000;
         const transport = Tone.getTransport();
         transport.seconds = 0;
 
-        this.currentState.startTime = this.now();
+        // Schedule startTime in the future so remote clients can receive and join before beat 0.
+        this.currentState.startTime = this.now() + TimingSync.START_BUFFER_MS;
         this.currentState.isPlaying = true;
         this.currentState.pausedPosition = 0;
 
-        transport.start();
+        transport.start(`+${bufferSec}`);
         this.anchorAudioContext(0);
 
         console.log('Started playback from 0 at:', this.currentState.startTime);

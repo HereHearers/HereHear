@@ -13,12 +13,31 @@ export class TimingSync {
         pausedPosition: 0
     };
 
+    /**
+     * AudioContext-time anchor for local drift correction (Proposal 1).
+     * Set to Tone.now() whenever the transport starts or is seeked.
+     * Null when the transport is not playing.
+     */
+    private _audioContextStartTime: number | null = null;
+    private _audioContextStartOffset: number = 0;
+
     private constructor() {}
 
     /** High-resolution, monotonic wall-clock time in milliseconds.
      *  Equivalent to Date.now() but sub-millisecond precise and immune to NTP jumps. */
     private now(): number {
         return performance.timeOrigin + performance.now();
+    }
+
+    /**
+     * Record the AudioContext time anchor for the sync loop.
+     * expectedPosition = Tone.now() - _audioContextStartTime + _audioContextStartOffset
+     * This keeps syncToTransport entirely within AudioContext time-space,
+     * eliminating OS-clock vs audio-hardware-clock oscillator divergence.
+     */
+    private anchorAudioContext(offsetSeconds: number = 0): void {
+        this._audioContextStartTime = Tone.now();
+        this._audioContextStartOffset = offsetSeconds;
     }
 
     static getInstance(): TimingSync {
@@ -75,6 +94,7 @@ export class TimingSync {
 
         // Update play/pause state and position
         if (state.isPlaying && state.startTime) {
+            // Wall-clock elapsed is only used here, for the initial cross-device seek.
             const elapsed = this.now() - state.startTime;
             const positionInSeconds = elapsed / 1000;
 
@@ -83,12 +103,17 @@ export class TimingSync {
                 console.log('[TimingSync] Starting Transport');
                 transport.seconds = positionInSeconds;
                 transport.start();
+                // Anchor AudioContext time so the sync loop stays in AudioContext time-space.
+                this.anchorAudioContext(positionInSeconds);
             } else {
                 // Already playing — only correct if drift exceeds threshold to avoid glitches.
                 const drift = Math.abs(transport.seconds - positionInSeconds);
                 if (drift > 0.05) {
                     console.log(`[TimingSync] syncFromRemote correcting drift: ${(drift * 1000).toFixed(1)}ms`);
-                    this.seekTo(positionInSeconds);
+                    // Use Transport's native sample-accurate seek (Proposal 2).
+                    transport.seconds = positionInSeconds;
+                    // Re-anchor so syncToTransport doesn't immediately re-flag this correction.
+                    this.anchorAudioContext(positionInSeconds);
                 }
             }
         } else {
@@ -96,43 +121,28 @@ export class TimingSync {
                 console.log('[TimingSync] Pausing Transport');
                 transport.pause();
             }
+            this._audioContextStartTime = null;
         }
     }
 
-    /**
-     * Smoothly seek to targetSeconds while the transport is playing.
-     * Instead of a hard seek (which glitches audio), we pause, set position,
-     * and schedule restart a short lookahead into the future.
-     * The target is pre-compensated by the lookahead so the sync loop won't
-     * immediately re-flag the correction as new drift.
-     */
-    private seekTo(targetSeconds: number): void {
-        const lookahead = 0.05; // 50ms
-        const transport = Tone.getTransport();
-        transport.pause();
-        transport.seconds = targetSeconds + lookahead;
-        transport.start(Tone.now() + lookahead);
-    }
-
     private syncToTransport() {
-        if (!this.isInitialized || !this.currentState.isPlaying || !this.currentState.startTime) {
+        if (!this.isInitialized || !this.currentState.isPlaying || this._audioContextStartTime === null) {
             return;
         }
 
         const transport = Tone.getTransport();
 
-        // Calculate where we should be based on startTime
-        const elapsed = this.now() - this.currentState.startTime;
-        const expectedPosition = elapsed / 1000;
-
-        // Get current transport position in seconds
+        // Both sides are in AudioContext time-space — no cross-oscillator comparison (Proposal 1).
+        const expectedPosition = Tone.now() - this._audioContextStartTime + this._audioContextStartOffset;
         const currentPosition = transport.seconds;
 
-        // If drift is more than 50ms, resync smoothly
+        // If drift is more than 50ms, resync using Transport's native sample-accurate seek (Proposal 2).
         const drift = Math.abs(currentPosition - expectedPosition);
         if (drift > 0.05) {
             console.log(`[TimingSync] Correcting drift: ${(drift * 1000).toFixed(1)}ms`);
-            this.seekTo(expectedPosition);
+            transport.seconds = expectedPosition;
+            // Re-anchor so the next loop iteration doesn't re-flag this correction.
+            this.anchorAudioContext(expectedPosition);
         }
     }
 
@@ -140,7 +150,7 @@ export class TimingSync {
         const sync = () => {
             this.syncToTransport();
 
-            // Sync every 500ms with small jitter
+            // Sync every 250ms with small jitter
             const baseInterval = 250;
             const jitterRange = 50;
             const jitter = baseInterval + (Math.random() * jitterRange * 2 - jitterRange);
@@ -186,6 +196,7 @@ export class TimingSync {
         this.currentState.pausedPosition = 0;
 
         transport.start();
+        this.anchorAudioContext(0);
 
         console.log('Started playback from 0 at:', this.currentState.startTime);
         return { ...this.currentState };
@@ -215,6 +226,7 @@ export class TimingSync {
         this.currentState.isPlaying = true;
 
         transport.start();
+        this.anchorAudioContext(pos);
 
         console.log('Resumed playback from', pos.toFixed(2), 's');
         return { ...this.currentState };
@@ -235,6 +247,7 @@ export class TimingSync {
         }
         this.currentState.isPlaying = false;
         this.currentState.startTime = null;
+        this._audioContextStartTime = null;
 
         const transport = Tone.getTransport();
         transport.pause();
@@ -259,6 +272,7 @@ export class TimingSync {
 
         if (this.currentState.isPlaying) {
             this.currentState.startTime = this.now();
+            this.anchorAudioContext(0);
         }
 
         console.log('Reset position to 0');
@@ -281,6 +295,7 @@ export class TimingSync {
         }
         this.isInitialized = false;
         this.onBpmChangeCallback = null;
+        this._audioContextStartTime = null;
         TimingSync.instance = null;
     }
 }

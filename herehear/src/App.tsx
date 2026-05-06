@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import DrawMapZones from './components/DrawMapZones';
-import { useAutomergeDoc } from './useAutomergeDoc';
+import { useBeatsyncBridge } from './useBeatsyncBridge';
 import { useGeolocation } from './useGeolocation';
 import type { LocationMode } from './useGeolocation';
 
@@ -13,6 +13,7 @@ function App() {
     connectedUserCount,
     connectedUsers,
     userId,
+    username,
     updateUserName,
     updateUserPosition,
     syncedShapes,
@@ -22,12 +23,10 @@ function App() {
     deleteShape,
     clearAllShapes,
     updateTransportState,
-    initializeTransportIfNeeded,
-    doc,
-    isReady
-  } = useAutomergeDoc();
+    isReady,
+  } = useBeatsyncBridge();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [nameInput, setNameInput] = useState('');
+  const [nameInput, setNameInput] = useState(username);
   const [locationMode, setLocationMode] = useState<LocationMode>(() => {
     const saved = localStorage.getItem('gpsound-location-mode');
     return (saved === 'gps' || saved === 'manual') ? saved : 'manual';
@@ -73,15 +72,6 @@ function App() {
   const handleLocationModeChange = (mode: LocationMode) => {
     setLocationMode(mode);
   };
-
-  // Get current user's name from the document
-  const currentUser = connectedUsers.find(u => u.id === userId);
-  const currentUserName = currentUser?.name || '';
-
-  // Update nameInput when currentUserName changes (from sync)
-  if (nameInput === '' && currentUserName !== '') {
-    setNameInput(currentUserName);
-  }
 
   const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newName = e.target.value;
@@ -419,8 +409,6 @@ function App() {
         deleteShape={deleteShape}
         clearAllShapes={clearAllShapes}
         updateTransportState={updateTransportState}
-        initializeTransportIfNeeded={initializeTransportIfNeeded}
-        transportState={doc?.transport}
         locationMode={locationMode}
       />
     </>

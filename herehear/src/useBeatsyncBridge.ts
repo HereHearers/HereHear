@@ -30,6 +30,13 @@ type BeatsyncClient = {
   joinedAt: number;
 };
 
+// ── Reconnection constants ────────────────────────────────────────────────────
+
+const MAX_RECONNECT_ATTEMPTS = 15;
+const INITIAL_INTERVAL_MS = 1000;
+const MAX_INTERVAL_MS = 10000;
+const CONNECTION_TIMEOUT_MS = 5000; // detect Safari/iOS silent drops
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/ws';
@@ -43,7 +50,7 @@ function stableString(key: string, init: () => string): string {
 }
 
 function generateRoomCode(): string {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
+  return Math.random().toString(36).substring(2, 8).padEnd(6, '0').toUpperCase();
 }
 
 function generateUsername(): string {
@@ -56,6 +63,9 @@ export function useBeatsyncBridge() {
   const [shapes, setShapes] = useState<BeatsyncShapeState[]>([]);
   const [clients, setClients] = useState<BeatsyncClient[]>([]);
   const [isReady, setIsReady] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  const [reconnectAttempt, setReconnectAttempt] = useState(0);
+
   const wsRef = useRef<WebSocket | null>(null);
 
   // Stable identity — created once, persisted to localStorage
@@ -171,53 +181,116 @@ export function useBeatsyncBridge() {
     [clients]
   );
 
-  // ── WebSocket lifecycle ─────────────────────────────────────────────────────
+  // ── WebSocket lifecycle with reconnection ───────────────────────────────────
 
   useEffect(() => {
-    const url = `${WS_URL}?roomId=${roomId}&username=${encodeURIComponent(username)}&clientId=${clientId}`;
-    const ws = new WebSocket(url);
-    wsRef.current = ws;
+    let intentionalClose = false;
+    let reconnectAttempts = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectionTimer: ReturnType<typeof setTimeout> | null = null;
 
-    ws.onopen = () => {
-      console.log('[beatsync] connected to room', roomId);
-      setIsReady(true);
+    const clearTimers = () => {
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (connectionTimer) { clearTimeout(connectionTimer); connectionTimer = null; }
     };
 
-    ws.onclose = () => {
-      console.log('[beatsync] disconnected');
-      setIsReady(false);
-    };
+    const scheduleReconnect = () => {
+      clearTimers();
+      reconnectAttempts++;
+      setIsReconnecting(true);
+      setReconnectAttempt(reconnectAttempts);
 
-    ws.onerror = (e) => console.error('[beatsync] WS error', e);
-
-    ws.onmessage = ({ data }) => {
-      let msg: unknown;
-      try {
-        msg = JSON.parse(data as string);
-      } catch {
+      if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('[beatsync] max reconnection attempts reached — giving up');
+        setIsReconnecting(false);
         return;
       }
-      if (!msg || typeof msg !== 'object' || !('type' in msg)) return;
-      const m = msg as Record<string, unknown>;
 
-      if (m['type'] === 'ROOM_EVENT') {
-        const ev = m['event'] as Record<string, unknown> | undefined;
-        if (!ev) return;
-        if (ev['type'] === 'CLIENT_CHANGE') {
-          setClients((ev['clients'] as BeatsyncClient[]) ?? []);
-        } else if (ev['type'] === 'SHAPES_UPDATE') {
-          setShapes((ev['shapes'] as BeatsyncShapeState[]) ?? []);
-        }
-      } else if (m['type'] === 'PERMISSION_ERROR') {
-        console.warn('[beatsync] permission denied — action:', m['action'], '—', m['message']);
-      }
+      // Exponential backoff with ±15% jitter to avoid thundering herd
+      const base = Math.min(
+        INITIAL_INTERVAL_MS * Math.pow(1.1, reconnectAttempts - 1),
+        MAX_INTERVAL_MS
+      );
+      const delay = base + Math.random() * 0.15 * base;
+      console.log(`[beatsync] reconnecting in ${Math.round(delay)}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
+      reconnectTimer = setTimeout(connect, delay);
     };
 
+    // Declared as function so scheduleReconnect can reference it before it's
+    // defined (mutual recursion within the same effect scope).
+    function connect() {
+      const url = `${WS_URL}?roomId=${roomId}&username=${encodeURIComponent(username)}&clientId=${clientId}`;
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      // Detect Safari/iOS silent drops — if the socket hasn't opened within
+      // CONNECTION_TIMEOUT_MS, treat it as a failed attempt and retry.
+      connectionTimer = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          console.log('[beatsync] connection timeout — server unreachable, retrying');
+          ws.onclose = () => {};
+          ws.close();
+          scheduleReconnect();
+        }
+      }, CONNECTION_TIMEOUT_MS);
+
+      ws.onopen = () => {
+        clearTimers();
+        reconnectAttempts = 0;
+        console.log('[beatsync] connected to room', roomId);
+        setIsReady(true);
+        setIsReconnecting(false);
+        setReconnectAttempt(0);
+      };
+
+      ws.onclose = () => {
+        setIsReady(false);
+        if (!intentionalClose) {
+          console.log('[beatsync] connection lost — scheduling reconnect');
+          scheduleReconnect();
+        }
+      };
+
+      ws.onerror = (e) => console.error('[beatsync] WS error', e);
+
+      ws.onmessage = ({ data }) => {
+        let msg: unknown;
+        try {
+          msg = JSON.parse(data as string);
+        } catch {
+          return;
+        }
+        if (!msg || typeof msg !== 'object' || !('type' in msg)) return;
+        const m = msg as Record<string, unknown>;
+
+        if (m['type'] === 'ROOM_EVENT') {
+          const ev = m['event'] as Record<string, unknown> | undefined;
+          if (!ev) return;
+          if (ev['type'] === 'CLIENT_CHANGE') {
+            setClients((ev['clients'] as BeatsyncClient[]) ?? []);
+          } else if (ev['type'] === 'SHAPES_UPDATE') {
+            setShapes((ev['shapes'] as BeatsyncShapeState[]) ?? []);
+          }
+        } else if (m['type'] === 'PERMISSION_ERROR') {
+          console.warn('[beatsync] permission denied — action:', m['action'], '—', m['message']);
+        }
+      };
+    }
+
+    connect();
+
     return () => {
-      ws.onclose = () => {};
-      ws.close();
-      wsRef.current = null;
+      intentionalClose = true;
+      clearTimers();
+      const ws = wsRef.current;
+      if (ws) {
+        ws.onclose = () => {};
+        ws.close();
+        wsRef.current = null;
+      }
       setIsReady(false);
+      setIsReconnecting(false);
+      setReconnectAttempt(0);
     };
   }, [roomId, clientId, username]);
 
@@ -226,6 +299,9 @@ export function useBeatsyncBridge() {
     userId: clientId,
     username,
     isReady,
+    isReconnecting,
+    reconnectAttempt,
+    maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
     connectedUsers,
     connectedUserCount: clients.length,
     syncedShapes,

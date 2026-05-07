@@ -4,10 +4,6 @@ import { useBeatsyncBridge } from './useBeatsyncBridge';
 import { useGeolocation } from './useGeolocation';
 import type { LocationMode } from './useGeolocation';
 
-// @ts-ignore
-window.type = true;
-
-
 function App() {
   const {
     connectedUserCount,
@@ -24,6 +20,9 @@ function App() {
     clearAllShapes,
     updateTransportState,
     isReady,
+    isReconnecting,
+    reconnectAttempt,
+    maxReconnectAttempts,
   } = useBeatsyncBridge();
   const [isExpanded, setIsExpanded] = useState(false);
   const [nameInput, setNameInput] = useState(username);
@@ -286,14 +285,16 @@ function App() {
             width: '8px',
             height: '8px',
             borderRadius: '50%',
-            backgroundColor: isReady ? '#22c55e' : '#94a3b8',
-            animation: isReady ? 'pulse 2s infinite' : 'none',
+            backgroundColor: isReady ? '#22c55e' : isReconnecting ? '#f59e0b' : '#94a3b8',
+            animation: isReady || isReconnecting ? 'pulse 2s infinite' : 'none',
           }} />
           <span style={{ fontWeight: 500, flex: 1 }}>
             {isReady ? (
               <>
                 {connectedUserCount} {connectedUserCount === 1 ? 'user' : 'users'} connected
               </>
+            ) : isReconnecting ? (
+              `Reconnecting... (${reconnectAttempt}/${maxReconnectAttempts})`
             ) : (
               'Connecting...'
             )}

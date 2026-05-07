@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import type { User, SyncedShape, TransportState } from './automergeTypes';
+import type { User, SyncedShape, TransportState } from './types';
 
 // ── Beatsync wire types (inlined — avoids @beatsync/shared dependency) ────────
 
@@ -67,6 +67,7 @@ export function useBeatsyncBridge() {
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const pendingQueueRef = useRef<unknown[]>([]);
 
   // Stable identity — created once, persisted to localStorage
   const [roomId] = useState<string>(() => {
@@ -92,6 +93,8 @@ export function useBeatsyncBridge() {
     const ws = wsRef.current;
     if (ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(msg));
+    } else {
+      pendingQueueRef.current.push(msg);
     }
   }, []);
 
@@ -238,6 +241,13 @@ export function useBeatsyncBridge() {
         clearTimers();
         reconnectAttempts = 0;
         console.log('[beatsync] connected to room', roomId);
+
+        const pending = pendingQueueRef.current.splice(0);
+        if (pending.length > 0) {
+          console.log(`[beatsync] draining ${pending.length} queued message(s)`);
+          for (const msg of pending) ws.send(JSON.stringify(msg));
+        }
+
         setIsReady(true);
         setIsReconnecting(false);
         setReconnectAttempt(0);
@@ -282,6 +292,7 @@ export function useBeatsyncBridge() {
     return () => {
       intentionalClose = true;
       clearTimers();
+      pendingQueueRef.current = [];
       const ws = wsRef.current;
       if (ws) {
         ws.onclose = () => {};

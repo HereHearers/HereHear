@@ -6,7 +6,7 @@ import SoundKit from './SoundKit';
 import SoundPlayer from './SoundPlayer';
 import { SOUND_DEFINITIONS } from './SoundConfig';
 import type { DrawnLayer, DrawnShape, SoundConfig } from '../sharedTypes';
-import type { User, SyncedShape, TransportState } from '../automergeTypes';
+import type { User, SyncedShape, TransportState } from '../types';
 import { TimingSync } from './TimingSync';
 import type { LocationMode } from '../useGeolocation';
 

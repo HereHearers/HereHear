@@ -1,5 +1,5 @@
 import * as Tone from 'tone';
-import type { TransportState } from '../automergeTypes';
+import type { TransportState } from '../types';
 
 export class TimingSync {
     private static instance: TimingSync | null = null;
